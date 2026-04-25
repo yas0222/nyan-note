@@ -1,420 +1,817 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
+import {
+  Home,
+  Cat,
+  PlusCircle,
+  BarChart3,
+  Globe,
+  Eye,
+  EyeOff,
+  Cookie,
+  Droplet,
+  Utensils,
+} from "lucide-react";
 
-const STORAGE_KEY = "cat-health-prototype-v1";
+const myCats = [
+  {
+    id: 1,
+    name: "もなか",
+    age: 3,
+    gender: "♀",
+    photo: "🐱",
+    color: "#E8B86D",
+    region: "千葉県浦安市",
+  },
+  {
+    id: 2,
+    name: "あんこ",
+    age: 7,
+    gender: "♂",
+    photo: "🐈‍⬛",
+    color: "#5C5048",
+    region: "千葉県浦安市",
+  },
+];
 
-const SAMPLE_DATA = {
-  sampleDataIncluded: true,
-  cats: [
-    { id: "cat-1", name: "もなか", age: 3, gender: "♀", emoji: "🐱", memo: "食欲は安定" , source: "sample"},
-    { id: "cat-2", name: "あんこ", age: 7, gender: "♂", emoji: "🐈‍⬛", memo: "尿量を観察中", source: "sample" },
-  ],
-  records: [
-    { id: "rec-1", catId: "cat-1", date: offsetDate(-3), food: 68, water: 180, poop: 1, pee: 3, note: "いつも通り", source: "sample" },
-    { id: "rec-2", catId: "cat-1", date: offsetDate(-1), food: 72, water: 190, poop: 2, pee: 3, note: "やや元気", source: "sample" },
-    { id: "rec-3", catId: "cat-2", date: offsetDate(-2), food: 56, water: 170, poop: 1, pee: 2, note: "落ち着いている", source: "sample" },
-    { id: "rec-4", catId: "cat-2", date: isoToday(), food: 60, water: 210, poop: 1, pee: 3, note: "よく飲んだ", source: "sample" },
-  ],
+const communityCats = [
+  { id: 101, name: "ミケ", anonymous: false, region: "東京都世田谷区", age: 5, food: 60, snack: "少なめ", poop: 1, pee: 3, photo: "🐈" },
+  { id: 102, name: null, anonymous: true, region: "大阪府大阪市", age: 2, food: 80, snack: "ふつう", poop: 2, pee: 4, photo: "🐱" },
+  { id: 103, name: "クロ", anonymous: false, region: "北海道札幌市", age: 9, food: 55, snack: "なし", poop: 1, pee: 2, photo: "🐈‍⬛" },
+  { id: 104, name: "ココ", anonymous: false, region: "千葉県市川市", age: 4, food: 70, snack: "ふつう", poop: 2, pee: 3, photo: "🐱" },
+  { id: 105, name: null, anonymous: true, region: "福岡県福岡市", age: 11, food: 50, snack: "少なめ", poop: 1, pee: 2, photo: "🐈" },
+];
+
+const palette = {
+  paper: "#F5EFE0",
+  paperDeep: "#EDE4CD",
+  ink: "#3A2E27",
+  inkSoft: "#6B5B4F",
+  accent: "#C8553D",
+  accentSoft: "#E8967A",
+  leaf: "#7A8B5C",
+  cream: "#FAF6EA",
+  line: "#D9CCB0",
 };
 
-function isoToday() {
-  return new Date().toISOString().slice(0, 10);
-}
+const fontDisplay = "'Zen Maru Gothic', 'Hiragino Maru Gothic ProN', serif";
+const fontBody = "'Zen Kaku Gothic New', 'Hiragino Sans', sans-serif";
 
-function offsetDate(days) {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
-function uid(prefix) {
-  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-}
-
-function loadData() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return SAMPLE_DATA;
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed.cats) || !Array.isArray(parsed.records)) return SAMPLE_DATA;
-    return parsed;
-  } catch {
-    return SAMPLE_DATA;
-  }
-}
-
-function validateCat(input) {
-  const errors = {};
-  const age = Number(input.age);
-  if (!input.name?.trim()) errors.name = "名前は必須です";
-  else if (input.name.trim().length > 20) errors.name = "名前は20文字以内です";
-
-  if (!Number.isInteger(age) || age < 0 || age > 30) errors.age = "年齢は0〜30の整数で入力してください";
-  if (!["♀", "♂", "不明"].includes(input.gender)) errors.gender = "性別を選択してください";
-  return errors;
-}
-
-function validateRecord(input, catIds) {
-  const errors = {};
-  const food = Number(input.food);
-  const water = Number(input.water);
-  const poop = Number(input.poop);
-  const pee = Number(input.pee);
-
-  if (!catIds.includes(input.catId)) errors.catId = "猫を選択してください";
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.date || "")) errors.date = "日付は必須です";
-  if (!Number.isFinite(food) || food < 0 || food > 500) errors.food = "ごはん量は0〜500g";
-  if (!Number.isFinite(water) || water < 0 || water > 2000) errors.water = "飲水量は0〜2000ml";
-  if (!Number.isInteger(poop) || poop < 0 || poop > 10) errors.poop = "0〜10回";
-  if (!Number.isInteger(pee) || pee < 0 || pee > 10) errors.pee = "0〜10回";
-  return errors;
-}
-
-function App() {
-  const [data, setData] = useState(loadData);
+function CatHealthApp() {
   const [tab, setTab] = useState("home");
-  const [selectedCatId, setSelectedCatId] = useState(data.cats[0]?.id || "");
-
-  const [catForm, setCatForm] = useState({ id: null, name: "", age: "", gender: "♀", emoji: "🐱", memo: "" });
-  const [catErrors, setCatErrors] = useState({});
-
-  const [recordForm, setRecordForm] = useState({ id: null, catId: selectedCatId || "", date: isoToday(), food: 70, water: 200, poop: 1, pee: 3, note: "" });
-  const [recordErrors, setRecordErrors] = useState({});
-
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  }, [data]);
-
-  useEffect(() => {
-    if (!data.cats.some((c) => c.id === selectedCatId)) {
-      const fallback = data.cats[0]?.id || "";
-      setSelectedCatId(fallback);
-      setRecordForm((prev) => ({ ...prev, catId: fallback }));
-    }
-  }, [data.cats, selectedCatId]);
-
-  const recordsByDateDesc = useMemo(
-    () => [...data.records].sort((a, b) => b.date.localeCompare(a.date)),
-    [data.records],
-  );
-
-  const today = isoToday();
-
-  const catsWithStatus = useMemo(
-    () =>
-      data.cats.map((cat) => ({
-        ...cat,
-        doneToday: data.records.some((r) => r.catId === cat.id && r.date === today),
-      })),
-    [data.cats, data.records, today],
-  );
-
-  function startEditCat(cat) {
-    setCatForm({ ...cat, age: String(cat.age), id: cat.id });
-    setCatErrors({});
-  }
-
-  function clearCatForm() {
-    setCatForm({ id: null, name: "", age: "", gender: "♀", emoji: "🐱", memo: "" });
-    setCatErrors({});
-  }
-
-  function saveCat(e) {
-    e.preventDefault();
-    const errors = validateCat(catForm);
-    setCatErrors(errors);
-    if (Object.keys(errors).length) return;
-
-    const normalized = {
-      id: catForm.id || uid("cat"),
-      name: catForm.name.trim(),
-      age: Number(catForm.age),
-      gender: catForm.gender,
-      emoji: catForm.emoji || "🐱",
-      memo: catForm.memo?.trim() || "",
-      source: catForm.source || "user",
-    };
-
-    setData((prev) => {
-      const exists = prev.cats.some((c) => c.id === normalized.id);
-      const cats = exists ? prev.cats.map((c) => (c.id === normalized.id ? normalized : c)) : [normalized, ...prev.cats];
-      return { ...prev, cats };
-    });
-
-    if (!selectedCatId) setSelectedCatId(normalized.id);
-    clearCatForm();
-  }
-
-  function deleteCat(catId) {
-    if (!window.confirm("この猫プロフィールを削除しますか？関連する記録も削除されます。")) return;
-    setData((prev) => ({
-      ...prev,
-      cats: prev.cats.filter((c) => c.id !== catId),
-      records: prev.records.filter((r) => r.catId !== catId),
-    }));
-  }
-
-  function startEditRecord(record) {
-    setRecordForm({ ...record, id: record.id });
-    setRecordErrors({});
-    setTab("records");
-  }
-
-  function clearRecordForm() {
-    setRecordForm({ id: null, catId: data.cats[0]?.id || "", date: isoToday(), food: 70, water: 200, poop: 1, pee: 3, note: "" });
-    setRecordErrors({});
-  }
-
-  function saveRecord(e) {
-    e.preventDefault();
-    const errors = validateRecord(recordForm, data.cats.map((c) => c.id));
-    setRecordErrors(errors);
-    if (Object.keys(errors).length) return;
-
-    const normalized = {
-      ...recordForm,
-      id: recordForm.id || uid("rec"),
-      food: Number(recordForm.food),
-      water: Number(recordForm.water),
-      poop: Number(recordForm.poop),
-      pee: Number(recordForm.pee),
-      note: recordForm.note?.trim() || "",
-      source: recordForm.source || "user",
-    };
-
-    setData((prev) => {
-      const exists = prev.records.some((r) => r.id === normalized.id);
-      const records = exists
-        ? prev.records.map((r) => (r.id === normalized.id ? normalized : r))
-        : [normalized, ...prev.records];
-      return { ...prev, records };
-    });
-
-    clearRecordForm();
-  }
-
-  function deleteRecord(recordId) {
-    if (!window.confirm("この日次記録を削除しますか？")) return;
-    setData((prev) => ({ ...prev, records: prev.records.filter((r) => r.id !== recordId) }));
-  }
-
-  function resetAll() {
-    if (!window.confirm("すべてのデータ（猫プロフィール・記録）を削除します。よろしいですか？")) return;
-    const empty = { cats: [], records: [], sampleDataIncluded: false };
-    setData(empty);
-    setSelectedCatId("");
-    clearCatForm();
-    clearRecordForm();
-  }
-
-  function removeSampleData() {
-    if (!window.confirm("サンプルデータのみ削除しますか？")) return;
-    setData((prev) => ({
-      ...prev,
-      sampleDataIncluded: false,
-      cats: prev.cats.filter((c) => c.source !== "sample"),
-      records: prev.records.filter((r) => r.source !== "sample"),
-    }));
-  }
-
-  const selectedCatName = data.cats.find((c) => c.id === recordForm.catId)?.name;
+  const [selectedCat, setSelectedCat] = useState(myCats[0]);
+  const [todayLog, setTodayLog] = useState({
+    foodTotal: 70,
+    kibblePct: 70,
+    wetPct: 30,
+    snack: "ふつう",
+    poop: 1,
+    pee: 3,
+    isPrivate: false,
+  });
 
   return (
-    <div className="app">
-      <header className="header">
-        <h1>にゃん・ノート</h1>
-        <p>1週間運用できる健康管理プロトタイプ</p>
-      </header>
+    <div
+      style={{
+        minHeight: "100vh",
+        background: palette.paper,
+        backgroundImage: `radial-gradient(circle at 20% 10%, ${palette.paperDeep} 0%, transparent 40%), radial-gradient(circle at 80% 80%, ${palette.paperDeep} 0%, transparent 40%)`,
+        color: palette.ink,
+        fontFamily: fontBody,
+        paddingBottom: "100px",
+        position: "relative",
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          pointerEvents: "none",
+          opacity: 0.4,
+          backgroundImage:
+            "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.35'/%3E%3C/svg%3E\")",
+          mixBlendMode: "multiply",
+          zIndex: 1,
+        }}
+      />
 
-      <nav className="tabs" aria-label="ナビゲーション">
-        {[
-          ["home", "ホーム"],
-          ["cats", "猫プロフィール"],
-          ["records", "日次記録"],
-          ["settings", "設定"],
-        ].map(([key, label]) => (
-          <button key={key} className={`tab-btn ${tab === key ? "active" : ""}`} onClick={() => setTab(key)}>
-            {label}
+      <Header />
+
+      <main style={{ position: "relative", zIndex: 2, padding: "0 20px", maxWidth: 480, margin: "0 auto" }}>
+        {tab === "home" && (
+          <HomeView
+            cats={myCats}
+            onPick={(c) => {
+              setSelectedCat(c);
+              setTab("mycat");
+            }}
+          />
+        )}
+        {tab === "mycat" && <MyCatView cat={selectedCat} log={todayLog} />}
+        {tab === "log" && (
+          <LogView
+            cat={selectedCat}
+            log={todayLog}
+            setLog={setTodayLog}
+            cats={myCats}
+            setSelectedCat={setSelectedCat}
+          />
+        )}
+        {tab === "community" && <CommunityView />}
+        {tab === "stats" && <StatsView />}
+      </main>
+
+      <BottomNav tab={tab} setTab={setTab} />
+    </div>
+  );
+}
+
+function Header() {
+  return (
+    <header
+      style={{
+        padding: "28px 20px 16px",
+        textAlign: "center",
+        position: "relative",
+        zIndex: 2,
+      }}
+    >
+      <div
+        style={{
+          fontFamily: fontDisplay,
+          fontSize: 26,
+          fontWeight: 700,
+          letterSpacing: "0.05em",
+          color: palette.ink,
+        }}
+      >
+        にゃん
+        <span style={{ color: palette.accent, margin: "0 4px" }}>•</span>
+        ノート
+      </div>
+      <div
+        style={{
+          fontSize: 11,
+          color: palette.inkSoft,
+          letterSpacing: "0.3em",
+          marginTop: 4,
+          textTransform: "uppercase",
+        }}
+      >
+        cat health journal
+      </div>
+      <div
+        style={{
+          height: 1,
+          background: `repeating-linear-gradient(90deg, ${palette.line} 0, ${palette.line} 6px, transparent 6px, transparent 12px)`,
+          margin: "16px auto 0",
+          maxWidth: 240,
+        }}
+      />
+    </header>
+  );
+}
+
+function HomeView({ cats, onPick }) {
+  const today = new Date();
+  const dateStr = `${today.getMonth() + 1}月${today.getDate()}日`;
+
+  return (
+    <div>
+      <SectionLabel left="今日の記録" right={dateStr} />
+      {cats.map((cat, i) => (
+        <button
+          key={cat.id}
+          onClick={() => onPick(cat)}
+          style={{
+            ...cardStyle,
+            display: "flex",
+            alignItems: "center",
+            gap: 16,
+            width: "100%",
+            border: "none",
+            cursor: "pointer",
+            textAlign: "left",
+            transform: i % 2 === 0 ? "rotate(-0.4deg)" : "rotate(0.4deg)",
+          }}
+        >
+          <div
+            style={{
+              width: 64,
+              height: 64,
+              borderRadius: "50%",
+              background: cat.color,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 36,
+              flexShrink: 0,
+              boxShadow: "inset 0 -4px 8px rgba(0,0,0,0.1)",
+            }}
+          >
+            {cat.photo}
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: fontDisplay, fontSize: 20, fontWeight: 700 }}>
+              {cat.name} <span style={{ fontSize: 14, color: palette.accent }}>{cat.gender}</span>
+            </div>
+            <div style={{ fontSize: 12, color: palette.inkSoft, marginTop: 2 }}>
+              {cat.age}歳 · {cat.region}
+            </div>
+            <div
+              style={{
+                marginTop: 8,
+                fontSize: 11,
+                color: palette.leaf,
+                fontWeight: 600,
+                letterSpacing: "0.05em",
+              }}
+            >
+              ✓ 今日の記録あり
+            </div>
+          </div>
+          <div style={{ fontSize: 24, color: palette.inkSoft }}>›</div>
+        </button>
+      ))}
+
+      <button
+        style={{
+          ...cardStyle,
+          width: "100%",
+          border: `2px dashed ${palette.line}`,
+          background: "transparent",
+          cursor: "pointer",
+          color: palette.inkSoft,
+          fontFamily: fontBody,
+          fontSize: 14,
+          padding: 24,
+        }}
+      >
+        + 新しい猫ちゃんを登録
+      </button>
+    </div>
+  );
+}
+
+function MyCatView({ cat, log }) {
+  return (
+    <div>
+      <SectionLabel left={`${cat.name}の手帳`} right="きょう" />
+
+      <div style={{ ...cardStyle, textAlign: "center", padding: "32px 20px" }}>
+        <div
+          style={{
+            width: 110,
+            height: 110,
+            borderRadius: "50%",
+            background: cat.color,
+            margin: "0 auto",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            fontSize: 64,
+            boxShadow: "inset 0 -8px 16px rgba(0,0,0,0.12)",
+          }}
+        >
+          {cat.photo}
+        </div>
+        <div style={{ fontFamily: fontDisplay, fontSize: 28, fontWeight: 700, marginTop: 12 }}>
+          {cat.name}
+        </div>
+        <div style={{ fontSize: 12, color: palette.inkSoft, marginTop: 4, letterSpacing: "0.1em" }}>
+          {cat.age}さい · {cat.gender} · {cat.region}
+        </div>
+      </div>
+
+      <SectionLabel left="ごはん" />
+      <div style={cardStyle}>
+        <BigStat label="合計" value={`${log.foodTotal}g`} icon={<Utensils size={16} />} />
+        <RatioBar kibble={log.kibblePct} wet={log.wetPct} />
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div style={cardStyle}>
+          <BigStat label="おやつ" value={log.snack} icon={<Cookie size={16} />} small />
+        </div>
+        <div style={cardStyle}>
+          <BigStat label="うんち / おしっこ" value={`${log.poop} / ${log.pee}回`} icon={<Droplet size={16} />} small />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LogView({ cat, log, setLog, cats, setSelectedCat }) {
+  const setKibble = (v) => setLog({ ...log, kibblePct: v, wetPct: 100 - v });
+
+  return (
+    <div>
+      <SectionLabel left="きょうの記録" right="🖋" />
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, overflowX: "auto" }}>
+        {cats.map((c) => (
+          <button
+            key={c.id}
+            onClick={() => setSelectedCat(c)}
+            style={{
+              flexShrink: 0,
+              padding: "8px 14px",
+              borderRadius: 999,
+              border: cat.id === c.id ? `2px solid ${palette.accent}` : `1px solid ${palette.line}`,
+              background: cat.id === c.id ? palette.cream : "transparent",
+              fontFamily: fontBody,
+              fontSize: 13,
+              cursor: "pointer",
+              color: palette.ink,
+            }}
+          >
+            <span style={{ marginRight: 6 }}>{c.photo}</span>
+            {c.name}
           </button>
         ))}
-      </nav>
+      </div>
 
-      <main className="container">
-        {tab === "home" && (
-          <section className="card">
-            <h2>今日の記録状況（{today}）</h2>
-            {catsWithStatus.length === 0 ? (
-              <p className="muted">猫プロフィールを追加すると、ここに表示されます。</p>
-            ) : (
-              <ul className="list">
-                {catsWithStatus.map((cat) => (
-                  <li key={cat.id} className="list-item">
-                    <div>
-                      <strong>{cat.emoji} {cat.name}</strong>
-                      <div className="muted">{cat.age}歳 / {cat.gender}</div>
-                    </div>
-                    <span className={`status ${cat.doneToday ? "done" : "pending"}`}>
-                      {cat.doneToday ? "記録済み" : "未記録"}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
+      <div style={cardStyle}>
+        <Label>🍚 一日のエサの量</Label>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginBottom: 8 }}>
+          <span style={{ fontFamily: fontDisplay, fontSize: 36, fontWeight: 700, color: palette.accent }}>
+            {log.foodTotal}
+          </span>
+          <span style={{ fontSize: 14, color: palette.inkSoft }}>g</span>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={150}
+          value={log.foodTotal}
+          onChange={(e) => setLog({ ...log, foodTotal: +e.target.value })}
+          style={{ width: "100%", accentColor: palette.accent }}
+        />
 
-            <h3>最新記録（新しい順）</h3>
-            {recordsByDateDesc.length === 0 ? (
-              <p className="muted">まだ記録がありません。</p>
-            ) : (
-              <ul className="stack">
-                {recordsByDateDesc.slice(0, 8).map((r) => (
-                  <li key={r.id} className="row">
-                    <span>{r.date}</span>
-                    <span>{data.cats.find((c) => c.id === r.catId)?.name || "削除済み"}</span>
-                    <span>{r.food}g / 水{r.water}ml / 💩{r.poop} / 🚽{r.pee}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        )}
+        <div style={{ marginTop: 20 }}>
+          <Label>カリカリ / ウェット の比率</Label>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: palette.inkSoft, marginBottom: 6 }}>
+            <span>カリカリ {log.kibblePct}%</span>
+            <span>ウェット {log.wetPct}%</span>
+          </div>
+          <RatioBar kibble={log.kibblePct} wet={log.wetPct} />
+          <input
+            type="range"
+            min={0}
+            max={100}
+            value={log.kibblePct}
+            onChange={(e) => setKibble(+e.target.value)}
+            style={{ width: "100%", accentColor: palette.leaf, marginTop: 8 }}
+          />
+        </div>
+      </div>
 
-        {tab === "cats" && (
-          <>
-            <section className="card">
-              <h2>{catForm.id ? "猫プロフィール編集" : "猫プロフィール追加"}</h2>
-              <form onSubmit={saveCat} className="form-grid">
-                <label>名前<input value={catForm.name} onChange={(e) => setCatForm((p) => ({ ...p, name: e.target.value }))} /></label>
-                {catErrors.name && <p className="error">{catErrors.name}</p>}
+      <div style={cardStyle}>
+        <Label>🍪 おやつの量</Label>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {["なし", "少なめ", "ふつう", "多め"].map((opt) => (
+            <Pill key={opt} active={log.snack === opt} onClick={() => setLog({ ...log, snack: opt })}>
+              {opt}
+            </Pill>
+          ))}
+        </div>
+      </div>
 
-                <label>年齢<input type="number" value={catForm.age} onChange={(e) => setCatForm((p) => ({ ...p, age: e.target.value }))} /></label>
-                {catErrors.age && <p className="error">{catErrors.age}</p>}
+      <div style={cardStyle}>
+        <Label>💩 うんち / 💧 おしっこ の回数</Label>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 8 }}>
+          <Counter label="うんち" value={log.poop} setValue={(v) => setLog({ ...log, poop: v })} />
+          <Counter label="おしっこ" value={log.pee} setValue={(v) => setLog({ ...log, pee: v })} />
+        </div>
+      </div>
 
-                <label>性別
-                  <select value={catForm.gender} onChange={(e) => setCatForm((p) => ({ ...p, gender: e.target.value }))}>
-                    <option value="♀">♀</option><option value="♂">♂</option><option value="不明">不明</option>
-                  </select>
-                </label>
-                {catErrors.gender && <p className="error">{catErrors.gender}</p>}
+      <div style={cardStyle}>
+        <button
+          onClick={() => setLog({ ...log, isPrivate: !log.isPrivate })}
+          style={{
+            width: "100%",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            border: "none",
+            background: "transparent",
+            cursor: "pointer",
+            padding: 0,
+          }}
+        >
+          <span style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 14, color: palette.ink }}>
+            {log.isPrivate ? <EyeOff size={18} /> : <Eye size={18} />}
+            {log.isPrivate ? "名前を伏せて共有" : "名前ありで共有"}
+          </span>
+          <span
+            style={{
+              width: 44,
+              height: 26,
+              borderRadius: 999,
+              background: log.isPrivate ? palette.inkSoft : palette.leaf,
+              position: "relative",
+              transition: "background 0.2s",
+            }}
+          >
+            <span
+              style={{
+                position: "absolute",
+                top: 3,
+                left: log.isPrivate ? 21 : 3,
+                width: 20,
+                height: 20,
+                borderRadius: "50%",
+                background: palette.cream,
+                transition: "left 0.2s",
+              }}
+            />
+          </span>
+        </button>
+        <div style={{ fontSize: 11, color: palette.inkSoft, marginTop: 8 }}>
+          {log.isPrivate
+            ? "他のユーザーには地域と健康データだけが見えます"
+            : "他の飼い主さんに名前と一緒にシェアされます"}
+        </div>
+      </div>
 
-                <label>アイコン（絵文字）<input value={catForm.emoji} onChange={(e) => setCatForm((p) => ({ ...p, emoji: e.target.value }))} /></label>
-                <label>メモ<textarea rows="2" value={catForm.memo} onChange={(e) => setCatForm((p) => ({ ...p, memo: e.target.value }))} /></label>
+      <button
+        style={{
+          width: "100%",
+          padding: "16px",
+          background: palette.ink,
+          color: palette.cream,
+          border: "none",
+          borderRadius: 14,
+          fontFamily: fontDisplay,
+          fontSize: 16,
+          fontWeight: 700,
+          letterSpacing: "0.1em",
+          cursor: "pointer",
+          marginTop: 8,
+          boxShadow: "0 4px 0 rgba(58,46,39,0.3)",
+        }}
+      >
+        ✓ 今日の記録を保存
+      </button>
+    </div>
+  );
+}
 
-                <div className="actions">
-                  <button type="submit">{catForm.id ? "更新" : "追加"}</button>
-                  <button type="button" className="sub" onClick={clearCatForm}>クリア</button>
-                </div>
-              </form>
-            </section>
+function CommunityView() {
+  const [filter, setFilter] = useState("全国");
+  const filters = ["全国", "近く", "千葉県"];
 
-            <section className="card">
-              <h3>登録済みプロフィール</h3>
-              {data.cats.length === 0 ? (
-                <p className="muted">まだ登録がありません。</p>
-              ) : (
-                <ul className="stack">
-                  {data.cats.map((cat) => (
-                    <li key={cat.id} className="item-block">
-                      <div>
-                        <strong>{cat.emoji} {cat.name}</strong>
-                        <div className="muted">{cat.age}歳 / {cat.gender} {cat.memo ? `・${cat.memo}` : ""}</div>
-                      </div>
-                      <div className="mini-actions">
-                        <button className="sub" onClick={() => startEditCat(cat)}>編集</button>
-                        <button className="danger" onClick={() => deleteCat(cat.id)}>削除</button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          </>
-        )}
+  const filtered = useMemo(() => {
+    if (filter === "近く" || filter === "千葉県") return communityCats.filter((c) => c.region.includes("千葉"));
+    return communityCats;
+  }, [filter]);
 
-        {tab === "records" && (
-          <>
-            <section className="card">
-              <h2>{recordForm.id ? "日次記録編集" : "日次記録追加"}</h2>
-              <form onSubmit={saveRecord} className="form-grid">
-                <label>猫
-                  <select value={recordForm.catId} onChange={(e) => setRecordForm((p) => ({ ...p, catId: e.target.value }))}>
-                    <option value="">選択してください</option>
-                    {data.cats.map((cat) => <option key={cat.id} value={cat.id}>{cat.name}</option>)}
-                  </select>
-                </label>
-                {recordErrors.catId && <p className="error">{recordErrors.catId}</p>}
+  return (
+    <div>
+      <SectionLabel left="ほかの猫ちゃん" right={`${filtered.length}匹`} />
 
-                <label>日付<input type="date" value={recordForm.date} onChange={(e) => setRecordForm((p) => ({ ...p, date: e.target.value }))} /></label>
-                {recordErrors.date && <p className="error">{recordErrors.date}</p>}
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        {filters.map((f) => (
+          <Pill key={f} active={filter === f} onClick={() => setFilter(f)}>
+            {f}
+          </Pill>
+        ))}
+      </div>
 
-                <label>ごはん量(g)<input type="number" value={recordForm.food} onChange={(e) => setRecordForm((p) => ({ ...p, food: e.target.value }))} /></label>
-                {recordErrors.food && <p className="error">{recordErrors.food}</p>}
-
-                <label>飲水量(ml)<input type="number" value={recordForm.water} onChange={(e) => setRecordForm((p) => ({ ...p, water: e.target.value }))} /></label>
-                {recordErrors.water && <p className="error">{recordErrors.water}</p>}
-
-                <div className="two-col">
-                  <label>うんち回数<input type="number" value={recordForm.poop} onChange={(e) => setRecordForm((p) => ({ ...p, poop: e.target.value }))} /></label>
-                  <label>おしっこ回数<input type="number" value={recordForm.pee} onChange={(e) => setRecordForm((p) => ({ ...p, pee: e.target.value }))} /></label>
-                </div>
-                {recordErrors.poop && <p className="error">うんち: {recordErrors.poop}</p>}
-                {recordErrors.pee && <p className="error">おしっこ: {recordErrors.pee}</p>}
-
-                <label>メモ<textarea rows="2" value={recordForm.note} onChange={(e) => setRecordForm((p) => ({ ...p, note: e.target.value }))} /></label>
-
-                <div className="actions">
-                  <button type="submit">{recordForm.id ? "更新" : "追加"}</button>
-                  <button type="button" className="sub" onClick={clearRecordForm}>クリア</button>
-                </div>
-              </form>
-              {selectedCatName && <p className="muted">現在選択中: {selectedCatName}</p>}
-            </section>
-
-            <section className="card">
-              <h3>日次記録一覧（日付の新しい順）</h3>
-              {recordsByDateDesc.length === 0 ? (
-                <p className="muted">記録がありません。</p>
-              ) : (
-                <ul className="stack">
-                  {recordsByDateDesc.map((r) => (
-                    <li key={r.id} className="item-block">
-                      <div>
-                        <strong>{r.date} / {data.cats.find((c) => c.id === r.catId)?.name || "削除済み"}</strong>
-                        <div className="muted">🍚{r.food}g ・ 💧{r.water}ml ・ 💩{r.poop} ・ 🚽{r.pee}</div>
-                        {r.note && <div className="muted">メモ: {r.note}</div>}
-                      </div>
-                      <div className="mini-actions">
-                        <button className="sub" onClick={() => startEditRecord(r)}>編集</button>
-                        <button className="danger" onClick={() => deleteRecord(r.id)}>削除</button>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-          </>
-        )}
-
-        {tab === "settings" && (
-          <section className="card">
-            <h2>データ管理</h2>
-            <p className="muted">localStorageで保存されています。必要に応じて削除できます。</p>
-
-            <div className="setting-actions">
-              <button className="danger" onClick={resetAll}>データを完全リセット</button>
-              <button className="sub" disabled={!data.sampleDataIncluded} onClick={removeSampleData}>サンプルデータ削除</button>
+      {filtered.map((cat, i) => (
+        <div
+          key={cat.id}
+          style={{
+            ...cardStyle,
+            display: "flex",
+            gap: 14,
+            transform: i % 3 === 0 ? "rotate(-0.3deg)" : i % 3 === 1 ? "rotate(0.3deg)" : "none",
+          }}
+        >
+          <div
+            style={{
+              width: 56,
+              height: 56,
+              borderRadius: "50%",
+              background: palette.cream,
+              border: `1px solid ${palette.line}`,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 30,
+              flexShrink: 0,
+            }}
+          >
+            {cat.photo}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <span style={{ fontFamily: fontDisplay, fontSize: 16, fontWeight: 700 }}>
+                {cat.anonymous ? "ひみつの猫さん" : cat.name}
+              </span>
+              {cat.anonymous && <EyeOff size={12} color={palette.inkSoft} />}
             </div>
-
-            <div className="meta">
-              <div>猫プロフィール: <strong>{data.cats.length}</strong>件</div>
-              <div>日次記録: <strong>{data.records.length}</strong>件</div>
-              <div>サンプルデータ: <strong>{data.sampleDataIncluded ? "あり" : "なし"}</strong></div>
+            <div style={{ fontSize: 11, color: palette.inkSoft, marginBottom: 8 }}>
+              {cat.region} · {cat.age}歳
             </div>
-          </section>
-        )}
-      </main>
+            <div style={{ display: "flex", gap: 10, fontSize: 11, color: palette.ink, flexWrap: "wrap" }}>
+              <Tag>🍚 {cat.food}g</Tag>
+              <Tag>🍪 {cat.snack}</Tag>
+              <Tag>💩 {cat.poop}</Tag>
+              <Tag>💧 {cat.pee}</Tag>
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function StatsView() {
+  const [scope, setScope] = useState("全国");
+  const scopes = ["千葉県", "関東", "全国"];
+
+  const data =
+    scope === "全国"
+      ? { count: 12483, avgFood: 68, avgPoop: 1.4, avgPee: 3.1, popularRatio: { kibble: 65, wet: 35 } }
+      : scope === "関東"
+      ? { count: 4218, avgFood: 70, avgPoop: 1.3, avgPee: 3.2, popularRatio: { kibble: 68, wet: 32 } }
+      : { count: 612, avgFood: 72, avgPoop: 1.5, avgPee: 3.0, popularRatio: { kibble: 62, wet: 38 } };
+
+  return (
+    <div>
+      <SectionLabel left="統計" right="🌏" />
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
+        {scopes.map((s) => (
+          <Pill key={s} active={scope === s} onClick={() => setScope(s)}>
+            {s}
+          </Pill>
+        ))}
+      </div>
+
+      <div style={{ ...cardStyle, padding: "20px", textAlign: "center" }}>
+        <div style={{ fontSize: 11, color: palette.inkSoft, letterSpacing: "0.2em" }}>登録されている猫</div>
+        <div style={{ fontFamily: fontDisplay, fontSize: 44, fontWeight: 700, color: palette.accent, lineHeight: 1.1 }}>
+          {data.count.toLocaleString()}
+          <span style={{ fontSize: 18, color: palette.ink, marginLeft: 4 }}>匹</span>
+        </div>
+        <div style={{ fontSize: 11, color: palette.inkSoft, marginTop: 4 }}>{scope}</div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <StatCard label="平均ごはん" value={`${data.avgFood}g`} hint="1日あたり" />
+        <StatCard label="平均うんち" value={`${data.avgPoop}回`} hint="1日あたり" />
+        <StatCard label="平均おしっこ" value={`${data.avgPee}回`} hint="1日あたり" />
+        <StatCard label="多い比率" value={`${data.popularRatio.kibble}:${data.popularRatio.wet}`} hint="カリカリ:ウェット" />
+      </div>
+
+      <div style={cardStyle}>
+        <Label>みんなのエサ比率</Label>
+        <RatioBar kibble={data.popularRatio.kibble} wet={data.popularRatio.wet} />
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            fontSize: 11,
+            color: palette.inkSoft,
+            marginTop: 6,
+          }}
+        >
+          <span>カリカリ {data.popularRatio.kibble}%</span>
+          <span>ウェット {data.popularRatio.wet}%</span>
+        </div>
+      </div>
+
+      <div style={{ ...cardStyle, background: palette.cream, borderStyle: "dashed" }}>
+        <div style={{ fontSize: 12, color: palette.inkSoft, lineHeight: 1.7 }}>
+          💡 <b style={{ color: palette.ink }}>もなかちゃん</b>のごはんは{scope}平均より少し多めです。おやつの頻度は平均的でバランスがいいですね。
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BottomNav({ tab, setTab }) {
+  const items = [
+    { key: "home", icon: Home, label: "ホーム" },
+    { key: "mycat", icon: Cat, label: "わが家" },
+    { key: "log", icon: PlusCircle, label: "記録", primary: true },
+    { key: "community", icon: Globe, label: "みんな" },
+    { key: "stats", icon: BarChart3, label: "統計" },
+  ];
+
+  return (
+    <nav
+      style={{
+        position: "fixed",
+        bottom: 16,
+        left: "50%",
+        transform: "translateX(-50%)",
+        background: palette.ink,
+        borderRadius: 999,
+        padding: "8px 12px",
+        display: "flex",
+        gap: 4,
+        boxShadow: "0 8px 24px rgba(58,46,39,0.35)",
+        zIndex: 10,
+      }}
+    >
+      {items.map((it) => {
+        const Icon = it.icon;
+        const active = tab === it.key;
+        return (
+          <button
+            key={it.key}
+            onClick={() => setTab(it.key)}
+            style={{
+              border: "none",
+              background: active ? palette.accent : "transparent",
+              color: active ? palette.cream : "#B0A091",
+              padding: "10px 12px",
+              borderRadius: 999,
+              cursor: "pointer",
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 2,
+              transition: "all 0.2s",
+              minWidth: 52,
+            }}
+          >
+            <Icon size={it.primary ? 22 : 18} />
+            <span style={{ fontSize: 9, fontWeight: 600 }}>{it.label}</span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+const cardStyle = {
+  background: palette.cream,
+  border: `1px solid ${palette.line}`,
+  borderRadius: 14,
+  padding: 18,
+  marginBottom: 12,
+  boxShadow: "0 2px 0 rgba(58,46,39,0.06), 0 8px 16px -8px rgba(58,46,39,0.15)",
+};
+
+function SectionLabel({ left, right }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "baseline",
+        margin: "8px 4px 12px",
+      }}
+    >
+      <span style={{ fontFamily: fontDisplay, fontSize: 14, fontWeight: 700, letterSpacing: "0.05em" }}>
+        — {left}
+      </span>
+      {right && <span style={{ fontSize: 11, color: palette.inkSoft }}>{right}</span>}
+    </div>
+  );
+}
+
+function Label({ children }) {
+  return (
+    <div
+      style={{
+        fontSize: 12,
+        color: palette.inkSoft,
+        marginBottom: 10,
+        letterSpacing: "0.05em",
+        fontWeight: 600,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function Pill({ active, onClick, children }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        padding: "8px 14px",
+        borderRadius: 999,
+        border: `1px solid ${active ? palette.accent : palette.line}`,
+        background: active ? palette.accent : "transparent",
+        color: active ? palette.cream : palette.ink,
+        fontFamily: fontBody,
+        fontSize: 12,
+        fontWeight: 600,
+        cursor: "pointer",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function Tag({ children }) {
+  return (
+    <span
+      style={{
+        background: palette.cream,
+        border: `1px solid ${palette.line}`,
+        borderRadius: 6,
+        padding: "3px 8px",
+        fontSize: 11,
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function Counter({ label, value, setValue }) {
+  return (
+    <div>
+      <div style={{ fontSize: 11, color: palette.inkSoft, marginBottom: 6 }}>{label}</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <button onClick={() => setValue(Math.max(0, value - 1))} style={counterBtn}>
+          −
+        </button>
+        <div style={{ fontFamily: fontDisplay, fontSize: 28, fontWeight: 700, minWidth: 32, textAlign: "center" }}>
+          {value}
+        </div>
+        <button onClick={() => setValue(value + 1)} style={counterBtn}>
+          +
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const counterBtn = {
+  width: 32,
+  height: 32,
+  borderRadius: "50%",
+  border: `1px solid ${palette.line}`,
+  background: palette.cream,
+  fontSize: 18,
+  cursor: "pointer",
+  color: palette.ink,
+};
+
+function BigStat({ label, value, icon, small }) {
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: palette.inkSoft, marginBottom: 4 }}>
+        {icon} {label}
+      </div>
+      <div style={{ fontFamily: fontDisplay, fontSize: small ? 20 : 28, fontWeight: 700, color: palette.ink }}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function StatCard({ label, value, hint }) {
+  return (
+    <div style={cardStyle}>
+      <div style={{ fontSize: 11, color: palette.inkSoft, marginBottom: 4 }}>{label}</div>
+      <div style={{ fontFamily: fontDisplay, fontSize: 24, fontWeight: 700, color: palette.accent }}>{value}</div>
+      <div style={{ fontSize: 10, color: palette.inkSoft, marginTop: 2 }}>{hint}</div>
+    </div>
+  );
+}
+
+function RatioBar({ kibble, wet }) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        height: 14,
+        borderRadius: 999,
+        overflow: "hidden",
+        border: `1px solid ${palette.line}`,
+        background: palette.cream,
+      }}
+    >
+      <div
+        style={{
+          width: `${kibble}%`,
+          background: `repeating-linear-gradient(45deg, ${palette.accent}, ${palette.accent} 4px, ${palette.accentSoft} 4px, ${palette.accentSoft} 8px)`,
+          transition: "width 0.3s",
+        }}
+      />
+      <div
+        style={{
+          width: `${wet}%`,
+          background: palette.leaf,
+          transition: "width 0.3s",
+        }}
+      />
     </div>
   );
 }
 
 const root = createRoot(document.getElementById("root"));
-root.render(<App />);
+root.render(<CatHealthApp />);
