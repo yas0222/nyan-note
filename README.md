@@ -97,6 +97,25 @@ python3 -m http.server 8000
 - Firebase 未設定時は自動でローカル運用（`localStorage` のみ）になります。
 - ログイン機能はまだ未実装です。現在は `anonymousOwnerId` を `localStorage` に生成し、`ownerUid` として利用します。
 - 猫プロフィール画像は現時点でも `localStorage` のみに保存し、Firestore（`cats` / `records`）には保存しません。Firestoreには `hasLocalImage` のような軽量フラグのみを保存します。
+- 設定カード内に「Firebase診断」を追加し、以下を画面で確認できます。
+  - Firebase config 設定有無
+  - Firebase app 初期化成功 / 失敗
+  - Firestore 初期化成功 / 失敗
+  - 最後の猫プロフィール保存結果
+  - 最後の日次記録保存結果
+  - 最後の Firebase エラーコード / メッセージ
+  - Firestore 接続テスト結果
+
+### Firebase診断の使い方
+
+1. ホーム画面の下部「Firebase診断」カードを開きます。
+2. `Firestore接続テスト` ボタンを押すと、Firestore の `debug` コレクションへテストドキュメントを書き込みます。
+3. 保存内容は軽量データのみです。
+   - `ownerUid`
+   - `createdAt`
+   - `message: "firestore test"`
+4. 成功時は画面に `Firestore接続テスト成功` と表示され、失敗時はエラーコードとエラーメッセージが表示されます。
+5. 同時に `console.log` / `console.error` に詳細を出力するため、ブラウザ開発者ツールでも原因追跡できます。
 
 ### Firebase プロジェクト作成手順（概要）
 
