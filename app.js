@@ -288,8 +288,6 @@ function CatHealthApp() {
     return map;
   }, [data]);
 
-  const selectedDisplayLog = selectedCat ? todayLogByCat[selectedCat.id] || newLogDraft() : newLogDraft();
-
   const updateCats = (updater) => {
     setData((prev) => ({ ...prev, cats: updater(prev.cats) }));
   };
@@ -495,8 +493,7 @@ function CatHealthApp() {
             onResetAllData={resetAllData}
           />
         )}
-        {tab === "mycat" && selectedCat && <MyCatView cat={selectedCat} log={selectedDisplayLog} />}
-        {tab === "mycat" && !selectedCat && <EmptyCatPrompt onMoveLog={() => setTab("home")} />}
+        {tab === "mycat" && <MyCatView cats={data.cats} logsByCat={data.logsByCat} />}
         {tab === "log" && selectedCat && (
           <LogView
             cat={selectedCat}
@@ -805,54 +802,79 @@ function HomeView({ cats, todayLogByCat, onPick, onAddCat, onUpdateCat, onDelete
   );
 }
 
-function MyCatView({ cat, log }) {
+function MyCatView({ cats, logsByCat }) {
+  if (!cats.length) {
+    return (
+      <div>
+        <SectionLabel left="わが家の猫たち" />
+        <div style={cardStyle}>猫を登録してください</div>
+      </div>
+    );
+  }
+
+  const getLatestLog = (catId) => {
+    const rows = logsByCat[catId] || [];
+    if (!rows.length) return null;
+    return [...rows].sort((a, b) => b.date.localeCompare(a.date))[0];
+  };
+
   return (
     <div>
-      <SectionLabel left={`${cat.name}の手帳`} right="きょう" />
-
-      <div style={{ ...cardStyle, textAlign: "center", padding: "32px 20px" }}>
-        <div
-          style={{
-            width: 110,
-            height: 110,
-            borderRadius: "50%",
-            background: getCatAvatarColor(cat),
-            margin: "0 auto",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontSize: 64,
-            boxShadow: "inset 0 -8px 16px rgba(0,0,0,0.12)",
-          }}
-        >
-          {cat.photo}
-        </div>
-        <div style={{ fontFamily: fontDisplay, fontSize: 28, fontWeight: 700, marginTop: 12 }}>{cat.name}</div>
-        <div style={{ fontSize: 12, color: palette.inkSoft, marginTop: 4, letterSpacing: "0.1em" }}>
-          {cat.age}さい · {cat.gender} · {cat.region}
-        </div>
-        <div style={{ fontSize: 12, color: palette.inkSoft, marginTop: 4 }}>毛色・柄 {cat.coatPattern?.trim() || "未設定"}</div>
-        {cat.currentWeightKg && <div style={{ fontSize: 12, color: palette.inkSoft, marginTop: 6 }}>現在の体重 {cat.currentWeightKg}kg</div>}
-      </div>
-
-      <SectionLabel left="ごはん" />
-      <div style={cardStyle}>
-        <BigStat label="合計" value={`${log.foodTotal}g`} icon={<Utensils size={16} />} />
-        <RatioBar kibble={log.kibblePct} wet={log.wetPct} />
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <div style={cardStyle}>
-          <BigStat label="おやつ" value={log.snack} icon={<Cookie size={16} />} small />
-        </div>
-        <div style={cardStyle}>
-          <BigStat label="飲水量" value={`${log.waterTotal} ml`} icon={<Droplet size={16} />} small />
-        </div>
-      </div>
-
-      <div style={{ ...cardStyle, marginTop: 12 }}>
-        <BigStat label="排泄" value={`うんち回数 ${log.poop}回 / おしっこ回数 ${log.pee}回`} icon={<Droplet size={16} />} small />
-      </div>
+      <SectionLabel left="わが家の猫たち" right={`${cats.length}匹`} />
+      {cats.map((cat, i) => {
+        const latestLog = getLatestLog(cat.id);
+        return (
+          <div
+            key={cat.id}
+            style={{
+              ...cardStyle,
+              transform: i % 2 === 0 ? "rotate(-0.3deg)" : "rotate(0.3deg)",
+            }}
+          >
+            <div style={{ display: "flex", gap: 14 }}>
+              <div
+                style={{
+                  width: 64,
+                  height: 64,
+                  borderRadius: "50%",
+                  background: getCatAvatarColor(cat),
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 34,
+                  flexShrink: 0,
+                  boxShadow: "inset 0 -4px 8px rgba(0,0,0,0.1)",
+                }}
+              >
+                {cat.photo || "🐱"}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontFamily: fontDisplay, fontSize: 20, fontWeight: 700 }}>
+                  {cat.name} <span style={{ fontSize: 14, color: palette.accent }}>{cat.gender}</span>
+                </div>
+                <div style={{ fontSize: 12, color: palette.inkSoft, marginTop: 2 }}>
+                  {cat.age}歳 · {cat.region}
+                </div>
+                <div style={{ fontSize: 12, color: palette.inkSoft, marginTop: 2 }}>毛色・柄 {cat.coatPattern?.trim() || "未設定"}</div>
+                <div style={{ fontSize: 12, color: palette.inkSoft, marginTop: 2 }}>現在の体重 {cat.currentWeightKg || "未入力"}{cat.currentWeightKg ? "kg" : ""}</div>
+              </div>
+            </div>
+            <div style={{ borderTop: `1px dashed ${palette.line}`, marginTop: 10, paddingTop: 10 }}>
+              <div style={{ fontSize: 11, color: palette.inkSoft, marginBottom: 4 }}>最新の日次記録</div>
+              {latestLog ? (
+                <div style={{ fontSize: 12, color: palette.ink, lineHeight: 1.7 }}>
+                  {latestLog.date} / ごはん量 {latestLog.foodTotal}g / 飲水量 {latestLog.waterTotal}ml / おやつ量 {latestLog.snack}
+                  <br />
+                  うんち回数 {latestLog.poop}回 / おしっこ回数 {latestLog.pee}回
+                  {latestLog.weightKg !== "" && latestLog.weightKg != null ? ` / 体重 ${Number(latestLog.weightKg).toFixed(1)}kg` : ""}
+                </div>
+              ) : (
+                <div style={{ fontSize: 12, color: palette.accent, fontWeight: 700 }}>まだ記録がありません</div>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
