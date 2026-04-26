@@ -228,6 +228,7 @@ function normalizeCats(cats) {
   return cats.map((cat) => ({
     ...cat,
     coatPattern: typeof cat.coatPattern === "string" ? cat.coatPattern : "",
+    photoImage: typeof cat.photoImage === "string" ? cat.photoImage : "",
     currentWeightKg: formatWeight(cat.currentWeightKg) ?? "",
   }));
 }
@@ -311,6 +312,7 @@ function CatHealthApp() {
             photo: form.photo.trim() || "🐱",
             region: form.region.trim(),
             currentWeightKg: formatWeight(form.currentWeightKg) ?? "",
+            photoImage: form.photoImage || "",
             source: "user",
           },
         ],
@@ -335,6 +337,7 @@ function CatHealthApp() {
               gender: form.gender,
               coatPattern: form.coatPattern.trim(),
               photo: form.photo.trim() || "🐱",
+              photoImage: form.photoImage || "",
               region: form.region.trim(),
               currentWeightKg: formatWeight(form.currentWeightKg) ?? "",
             }
@@ -596,6 +599,7 @@ function HomeView({ cats, todayLogByCat, onPick, onAddCat, onUpdateCat, onDelete
     gender: "♀",
     coatPattern: "",
     photo: "🐱",
+    photoImage: "",
     region: "",
     currentWeightKg: "",
   });
@@ -607,6 +611,7 @@ function HomeView({ cats, todayLogByCat, onPick, onAddCat, onUpdateCat, onDelete
       gender: "♀",
       coatPattern: "",
       photo: "🐱",
+      photoImage: "",
       region: "",
       currentWeightKg: "",
     });
@@ -623,9 +628,20 @@ function HomeView({ cats, todayLogByCat, onPick, onAddCat, onUpdateCat, onDelete
       gender: cat.gender,
       coatPattern: cat.coatPattern ?? "",
       photo: cat.photo,
+      photoImage: cat.photoImage || "",
       region: cat.region,
       currentWeightKg: cat.currentWeightKg ?? "",
     });
+  };
+
+  const handlePhotoImageUpload = async (file) => {
+    if (!file || !file.type.startsWith("image/")) return;
+    try {
+      const compressed = await compressImageFile(file);
+      setForm((prev) => ({ ...prev, photoImage: compressed }));
+    } catch (_error) {
+      setErrors((prev) => [...prev, "画像の読み込みに失敗しました。別の画像をお試しください。"]);
+    }
   };
 
   const submit = () => {
@@ -675,7 +691,7 @@ function HomeView({ cats, todayLogByCat, onPick, onAddCat, onUpdateCat, onDelete
                   boxShadow: "inset 0 -4px 8px rgba(0,0,0,0.1)",
                 }}
               >
-                {cat.photo}
+                <CatAvatar cat={cat} size={64} fontSize={36} />
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontFamily: fontDisplay, fontSize: 20, fontWeight: 700 }}>
@@ -730,6 +746,19 @@ function HomeView({ cats, todayLogByCat, onPick, onAddCat, onUpdateCat, onDelete
           </InputRow>
           <InputRow label="写真(絵文字)">
             <input value={form.photo} onChange={(e) => setForm({ ...form, photo: e.target.value })} style={inputStyle} />
+          </InputRow>
+          <InputRow label="プロフィール画像">
+            <input
+              type="file"
+              accept="image/*"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                handlePhotoImageUpload(file);
+                e.target.value = "";
+              }}
+              style={inputStyle}
+            />
+            {form.photoImage && <div style={{ fontSize: 11, color: palette.inkSoft, marginTop: 4 }}>画像を設定済み（絵文字より優先表示）</div>}
           </InputRow>
           <InputRow label="毛色・柄（任意）">
             <input
@@ -846,7 +875,7 @@ function MyCatView({ cats, logsByCat }) {
                   boxShadow: "inset 0 -4px 8px rgba(0,0,0,0.1)",
                 }}
               >
-                {cat.photo || "🐱"}
+                <CatAvatar cat={cat} size={64} fontSize={34} />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontFamily: fontDisplay, fontSize: 20, fontWeight: 700 }}>
@@ -1081,7 +1110,7 @@ function LogView({ cat, logs, saveLog, deleteLog, cats, setSelectedCat, onMoveHo
           unit="ml"
           min={0}
           max={500}
-          step={10}
+          step={5}
           color={palette.leaf}
           onChange={setWaterTotal}
         />
@@ -1643,7 +1672,7 @@ function StepNumberInput({ value, unit, min, max, step, color, onChange }) {
         </button>
       </div>
       <div style={{ fontSize: 11, color: palette.inkSoft, marginTop: 6 }}>
-        {unit === "g" ? "±5gずつ調整できます" : "±10mlずつ調整できます"}
+        {`±${step}${unit}ずつ調整できます`}
       </div>
     </div>
   );
@@ -1670,37 +1699,77 @@ function Counter({ label, value, setValue, unit }) {
 }
 
 function RatioSelector({ value, onChange }) {
-  const steps = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+  const options = [
+    { label: "カリカリだけ", kibble: 100, wet: 0 },
+    { label: "カリカリ多め", kibble: 75, wet: 25 },
+    { label: "半々", kibble: 50, wet: 50 },
+    { label: "ウェット多め", kibble: 25, wet: 75 },
+    { label: "ウェットだけ", kibble: 0, wet: 100 },
+  ];
   const safe = Number.isFinite(value) ? value : 0;
 
   return (
     <div style={{ marginTop: 10 }}>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-        {steps.map((pct) => (
-          <Pill key={pct} active={safe === pct} onClick={() => onChange(pct)}>
-            {pct}%
+        {options.map((opt) => (
+          <Pill key={opt.label} active={safe === opt.kibble} onClick={() => onChange(opt.kibble)}>
+            {opt.label}
           </Pill>
         ))}
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
-        <span style={{ fontSize: 11, color: palette.inkSoft }}>直接入力</span>
-        <input
-          type="number"
-          min={0}
-          max={100}
-          step={1}
-          value={safe}
-          onChange={(e) => {
-            const parsed = Number(e.target.value);
-            if (Number.isNaN(parsed)) return;
-            onChange(parsed);
-          }}
-          style={{ ...inputStyle, maxWidth: 90, textAlign: "center" }}
-        />
-        <span style={{ fontSize: 11, color: palette.inkSoft }}>%（カリカリ）</span>
-      </div>
+      {!options.some((opt) => opt.kibble === safe) && (
+        <div style={{ fontSize: 11, color: palette.inkSoft, marginTop: 8 }}>既存データの比率: カリカリ {safe}% / ウェット {100 - safe}%</div>
+      )}
     </div>
   );
+}
+
+async function compressImageFile(file) {
+  const readAsDataUrl = () =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(new Error("画像読み込みに失敗しました。"));
+      reader.readAsDataURL(file);
+    });
+
+  const dataUrl = await readAsDataUrl();
+  const img = await new Promise((resolve, reject) => {
+    const el = new Image();
+    el.onload = () => resolve(el);
+    el.onerror = () => reject(new Error("画像の解析に失敗しました。"));
+    el.src = dataUrl;
+  });
+
+  const maxSide = 320;
+  const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+  const width = Math.max(1, Math.round(img.width * scale));
+  const height = Math.max(1, Math.round(img.height * scale));
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img, 0, 0, width, height);
+  return canvas.toDataURL("image/jpeg", 0.75);
+}
+
+function CatAvatar({ cat, size = 64, fontSize = 34 }) {
+  if (cat?.photoImage) {
+    return (
+      <img
+        src={cat.photoImage}
+        alt={`${cat.name}のプロフィール画像`}
+        style={{
+          width: size,
+          height: size,
+          borderRadius: "50%",
+          objectFit: "cover",
+          display: "block",
+        }}
+      />
+    );
+  }
+  return <span style={{ fontSize }}>{cat?.photo || "🐱"}</span>;
 }
 
 const counterBtn = {
