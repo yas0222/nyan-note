@@ -114,14 +114,21 @@ const palette = {
 const fontDisplay = "'Zen Maru Gothic', 'Hiragino Maru Gothic ProN', serif";
 const fontBody = "'Zen Kaku Gothic New', 'Hiragino Sans', sans-serif";
 
+function toLocalDateKey(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function todayKey() {
-  return new Date().toISOString().slice(0, 10);
+  return toLocalDateKey(new Date());
 }
 
 function daysAgoKey(days) {
   const d = new Date();
   d.setDate(d.getDate() - days);
-  return d.toISOString().slice(0, 10);
+  return toLocalDateKey(d);
 }
 
 function buildInitialData() {
