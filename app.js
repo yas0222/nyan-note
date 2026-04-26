@@ -21,6 +21,7 @@ const sampleCats = [
     name: "もなか",
     age: 3,
     gender: "♀",
+    coatPattern: "茶白",
     photo: "🐱",
     color: "#E8B86D",
     region: "千葉県浦安市",
@@ -32,6 +33,7 @@ const sampleCats = [
     name: "あんこ",
     age: 7,
     gender: "♂",
+    coatPattern: "黒猫",
     photo: "🐈‍⬛",
     color: "#5C5048",
     region: "千葉県浦安市",
@@ -218,6 +220,7 @@ function normalizeCats(cats) {
   if (!Array.isArray(cats)) return sampleCats;
   return cats.map((cat) => ({
     ...cat,
+    coatPattern: typeof cat.coatPattern === "string" ? cat.coatPattern : "",
     currentWeightKg: formatWeight(cat.currentWeightKg) ?? "",
   }));
 }
@@ -299,6 +302,7 @@ function CatHealthApp() {
             name: form.name.trim(),
             age: Number(form.age),
             gender: form.gender,
+            coatPattern: form.coatPattern.trim(),
             photo: form.photo.trim() || "🐱",
             color: form.color,
             region: form.region.trim(),
@@ -325,6 +329,7 @@ function CatHealthApp() {
               name: form.name.trim(),
               age: Number(form.age),
               gender: form.gender,
+              coatPattern: form.coatPattern.trim(),
               photo: form.photo.trim() || "🐱",
               color: form.color,
               region: form.region.trim(),
@@ -583,10 +588,28 @@ function HomeView({ cats, todayLogByCat, onPick, onAddCat, onUpdateCat, onDelete
   const [showAdd, setShowAdd] = useState(false);
   const [editingCatId, setEditingCatId] = useState(null);
   const [errors, setErrors] = useState([]);
-  const [form, setForm] = useState({ name: "", age: "", gender: "♀", photo: "🐱", color: "#D9A86A", region: "", currentWeightKg: "" });
+  const [form, setForm] = useState({
+    name: "",
+    age: "",
+    gender: "♀",
+    coatPattern: "",
+    photo: "🐱",
+    color: "#D9A86A",
+    region: "",
+    currentWeightKg: "",
+  });
 
   const resetForm = () => {
-    setForm({ name: "", age: "", gender: "♀", photo: "🐱", color: "#D9A86A", region: "", currentWeightKg: "" });
+    setForm({
+      name: "",
+      age: "",
+      gender: "♀",
+      coatPattern: "",
+      photo: "🐱",
+      color: "#D9A86A",
+      region: "",
+      currentWeightKg: "",
+    });
     setErrors([]);
   };
 
@@ -598,6 +621,7 @@ function HomeView({ cats, todayLogByCat, onPick, onAddCat, onUpdateCat, onDelete
       name: cat.name,
       age: String(cat.age),
       gender: cat.gender,
+      coatPattern: cat.coatPattern ?? "",
       photo: cat.photo,
       color: cat.color,
       region: cat.region,
@@ -661,6 +685,9 @@ function HomeView({ cats, todayLogByCat, onPick, onAddCat, onUpdateCat, onDelete
                 <div style={{ fontSize: 12, color: palette.inkSoft, marginTop: 2 }}>
                   {cat.age}歳 · {cat.region}
                 </div>
+                {cat.coatPattern && (
+                  <div style={{ fontSize: 12, color: palette.inkSoft, marginTop: 2 }}>毛色・柄 {cat.coatPattern}</div>
+                )}
                 {cat.currentWeightKg && (
                   <div style={{ fontSize: 12, color: palette.inkSoft, marginTop: 2 }}>体重 {cat.currentWeightKg}kg</div>
                 )}
@@ -704,6 +731,14 @@ function HomeView({ cats, todayLogByCat, onPick, onAddCat, onUpdateCat, onDelete
           </InputRow>
           <InputRow label="写真(絵文字)">
             <input value={form.photo} onChange={(e) => setForm({ ...form, photo: e.target.value })} style={inputStyle} />
+          </InputRow>
+          <InputRow label="毛色・柄（任意）">
+            <input
+              value={form.coatPattern}
+              onChange={(e) => setForm({ ...form, coatPattern: e.target.value })}
+              style={inputStyle}
+              placeholder="例: 茶白、キジトラ、三毛"
+            />
           </InputRow>
           <InputRow label="色(#RRGGBB)">
             <input value={form.color} onChange={(e) => setForm({ ...form, color: e.target.value })} style={inputStyle} />
@@ -797,6 +832,7 @@ function MyCatView({ cat, log }) {
         <div style={{ fontSize: 12, color: palette.inkSoft, marginTop: 4, letterSpacing: "0.1em" }}>
           {cat.age}さい · {cat.gender} · {cat.region}
         </div>
+        <div style={{ fontSize: 12, color: palette.inkSoft, marginTop: 4 }}>毛色・柄 {cat.coatPattern?.trim() || "未設定"}</div>
         {cat.currentWeightKg && <div style={{ fontSize: 12, color: palette.inkSoft, marginTop: 6 }}>現在の体重 {cat.currentWeightKg}kg</div>}
       </div>
 
