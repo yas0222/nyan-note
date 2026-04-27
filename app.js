@@ -265,6 +265,32 @@ function daysAgoKey(days) {
   return toLocalDateKey(d);
 }
 
+function parseDateKey(dateKey) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey)) return null;
+  const [year, month, day] = dateKey.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function monthLabel(date) {
+  return `${date.getFullYear()}年${date.getMonth() + 1}月`;
+}
+
+function monthCellDates(monthDate) {
+  const firstDay = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+  const startWeekday = firstDay.getDay();
+  const daysInMonth = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0).getDate();
+  const cells = [];
+
+  for (let i = 0; i < startWeekday; i += 1) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d += 1) {
+    const cellDate = new Date(monthDate.getFullYear(), monthDate.getMonth(), d);
+    cells.push(toLocalDateKey(cellDate));
+  }
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  return cells;
+}
+
 function buildInitialData() {
   return {
     cats: sampleCats,
@@ -1365,6 +1391,11 @@ function LogView({ cat, logs, saveLog, deleteLog, cats, setSelectedCat, onMoveHo
   const [editingId, setEditingId] = useState(null);
   const [errors, setErrors] = useState([]);
   const [lastSaved, setLastSaved] = useState(null);
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
+  const [selectedDateKey, setSelectedDateKey] = useState(todayKey());
   const logFormRef = useRef(null);
 
   const scrollToLogForm = () => {
@@ -1382,6 +1413,9 @@ function LogView({ cat, logs, saveLog, deleteLog, cats, setSelectedCat, onMoveHo
     setDraft(hydrateLogDraft(today));
     setEditingId(today?.id || null);
     setErrors([]);
+    const now = new Date();
+    setCalendarMonth(new Date(now.getFullYear(), now.getMonth(), 1));
+    setSelectedDateKey(todayKey());
   }, [cat.id, logs]);
 
   useEffect(() => {
@@ -1428,6 +1462,14 @@ function LogView({ cat, logs, saveLog, deleteLog, cats, setSelectedCat, onMoveHo
 
   const sortedLogs = [...logs].sort((a, b) => b.date.localeCompare(a.date));
   const recentLogs = sortedLogs.slice(0, 7);
+  const logMapByDate = Object.fromEntries(logs.map((row) => [row.date, row]));
+  const calendarCells = monthCellDates(calendarMonth);
+  const selectedLog = logMapByDate[selectedDateKey] || null;
+  const selectedDateObj = parseDateKey(selectedDateKey);
+  const selectedDateLabel = selectedDateObj
+    ? `${selectedDateObj.getFullYear()}年${selectedDateObj.getMonth() + 1}月${selectedDateObj.getDate()}日`
+    : selectedDateKey;
+
   return (
     <div>
       <SectionLabel left="きょうの記録" right="🖋" />
@@ -1671,6 +1713,93 @@ function LogView({ cat, logs, saveLog, deleteLog, cats, setSelectedCat, onMoveHo
           新規記録モードに戻す
         </button>
       )}
+
+      <div style={{ ...cardStyle, marginTop: 12, paddingBottom: 14 }}>
+        <Label>記録カレンダー（月間）</Label>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+          <MiniButton onClick={() => setCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}>前月</MiniButton>
+          <div style={{ fontFamily: fontDisplay, fontSize: 15, fontWeight: 700 }}>{monthLabel(calendarMonth)}</div>
+          <MiniButton onClick={() => setCalendarMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}>翌月</MiniButton>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(7, 1fr)",
+            gap: 6,
+            fontSize: 11,
+            color: palette.inkSoft,
+            marginBottom: 6,
+            textAlign: "center",
+          }}
+        >
+          {["日", "月", "火", "水", "木", "金", "土"].map((w) => (
+            <div key={w}>{w}</div>
+          ))}
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 6 }}>
+          {calendarCells.map((dateKey, index) => {
+            if (!dateKey) return <div key={`empty-${index}`} style={{ minHeight: 42 }} />;
+            const hasLog = Boolean(logMapByDate[dateKey]);
+            const isToday = dateKey === todayKey();
+            const isSelected = dateKey === selectedDateKey;
+            return (
+              <button
+                key={dateKey}
+                onClick={() => setSelectedDateKey(dateKey)}
+                style={{
+                  border: isSelected ? `1px solid ${palette.accentSoft}` : `1px solid ${palette.line}`,
+                  borderRadius: 10,
+                  background: isSelected ? "#FFF4E8" : palette.cream,
+                  color: palette.ink,
+                  minHeight: 44,
+                  padding: "5px 2px",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: 2,
+                  fontFamily: fontBody,
+                  cursor: "pointer",
+                  boxShadow: isToday ? `inset 0 0 0 1px ${palette.inkSoft}` : "none",
+                }}
+              >
+                <span style={{ fontSize: 12, fontWeight: isToday ? 700 : 500 }}>{Number(dateKey.slice(-2))}</span>
+                <span style={{ fontSize: 10, lineHeight: 1, color: hasLog ? palette.leaf : "transparent" }}>{hasLog ? "✓" : "・"}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div style={{ marginTop: 12, borderTop: `1px dashed ${palette.line}`, paddingTop: 10 }}>
+          {selectedLog ? (
+            <div>
+              <div style={{ fontFamily: fontDisplay, fontSize: 15, fontWeight: 700 }}>{selectedDateLabel}</div>
+              <div style={{ display: "grid", gap: 4, marginTop: 6, fontSize: 12, color: palette.inkSoft, lineHeight: 1.45 }}>
+                <div>ごはん量 {selectedLog.foodTotal}g</div>
+                <div>
+                  カリカリ {selectedLog.kibblePct}% / ウェット {selectedLog.wetPct}%
+                </div>
+                <div>飲水量 {selectedLog.waterTotal}ml</div>
+                <div>おやつ {selectedLog.snack}</div>
+                <div>うんち回数 {selectedLog.poop}回</div>
+                <div>おしっこ回数 {selectedLog.pee}回</div>
+                {selectedLog.weightKg !== "" && selectedLog.weightKg != null && <div>体重 {Number(selectedLog.weightKg).toFixed(1)}kg</div>}
+              </div>
+              <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                <MiniButton onClick={() => startEdit(selectedLog)}>この日を編集</MiniButton>
+                <MiniButton onClick={() => deleteLog(cat.id, selectedLog.id)}>削除</MiniButton>
+              </div>
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: palette.inkSoft }}>
+              <div style={{ fontFamily: fontDisplay, fontSize: 14, color: palette.ink, marginBottom: 4 }}>{selectedDateLabel}</div>
+              この日の記録はありません
+            </div>
+          )}
+        </div>
+      </div>
 
       <div style={{ ...cardStyle, marginTop: 12 }}>
         <Label>記録履歴（直近7件）</Label>
