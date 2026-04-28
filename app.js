@@ -15,6 +15,55 @@ import {
 
 const STORAGE_KEY = "nyan-note-prototype-v1";
 const ANONYMOUS_OWNER_ID_KEY = "nyan-note-anonymous-owner-id-v1";
+const PREFECTURES = [
+  "北海道",
+  "青森県",
+  "岩手県",
+  "宮城県",
+  "秋田県",
+  "山形県",
+  "福島県",
+  "茨城県",
+  "栃木県",
+  "群馬県",
+  "埼玉県",
+  "千葉県",
+  "東京都",
+  "神奈川県",
+  "新潟県",
+  "富山県",
+  "石川県",
+  "福井県",
+  "山梨県",
+  "長野県",
+  "岐阜県",
+  "静岡県",
+  "愛知県",
+  "三重県",
+  "滋賀県",
+  "京都府",
+  "大阪府",
+  "兵庫県",
+  "奈良県",
+  "和歌山県",
+  "鳥取県",
+  "島根県",
+  "岡山県",
+  "広島県",
+  "山口県",
+  "徳島県",
+  "香川県",
+  "愛媛県",
+  "高知県",
+  "福岡県",
+  "佐賀県",
+  "長崎県",
+  "熊本県",
+  "大分県",
+  "宮崎県",
+  "鹿児島県",
+  "沖縄県",
+];
 
 const FIREBASE_CONFIG = {
   apiKey: "AIzaSyD5YPd4OFIZZzsASOD8Rvv-kNP9hw-2O7o",
@@ -104,6 +153,29 @@ function omitUndefinedFields(payload) {
   return Object.fromEntries(Object.entries(payload).filter(([, value]) => value !== undefined));
 }
 
+function inferPrefectureFromRegion(region) {
+  if (typeof region !== "string") return "";
+  const normalized = region.trim();
+  if (!normalized) return "";
+  return PREFECTURES.find((prefecture) => normalized.startsWith(prefecture)) || "";
+}
+
+function buildRegionText(prefecture, city, fallbackRegion = "") {
+  const normalizedPrefecture = typeof prefecture === "string" ? prefecture.trim() : "";
+  const normalizedCity = typeof city === "string" ? city.trim() : "";
+  if (normalizedPrefecture) return `${normalizedPrefecture}${normalizedCity}`;
+  return typeof fallbackRegion === "string" ? fallbackRegion.trim() : "";
+}
+
+function inferCityFromRegion(region, prefecture) {
+  if (typeof region !== "string" || typeof prefecture !== "string") return "";
+  const normalizedRegion = region.trim();
+  const normalizedPrefecture = prefecture.trim();
+  if (!normalizedRegion || !normalizedPrefecture) return "";
+  if (!normalizedRegion.startsWith(normalizedPrefecture)) return "";
+  return normalizedRegion.slice(normalizedPrefecture.length).trim();
+}
+
 function getFirebaseErrorDetails(error) {
   const code = error && typeof error.code === "string" ? error.code : "";
   const message = error instanceof Error ? error.message : "不明なFirebaseエラー";
@@ -117,6 +189,8 @@ function toFirestoreCatPayload(cat, ownerUid) {
     name: cat.name,
     age: Number(cat.age),
     sex: cat.gender ?? cat.sex,
+    prefecture: cat.prefecture || "",
+    city: cat.city || "",
     region: cat.region,
     coatPattern: cat.coatPattern || "",
     currentWeightKg: cat.currentWeightKg === "" ? null : Number(cat.currentWeightKg),
@@ -159,6 +233,8 @@ const sampleCats = [
     coatPattern: "茶白",
     photo: "🐱",
     color: "#E8B86D",
+    prefecture: "千葉県",
+    city: "浦安市",
     region: "千葉県浦安市",
     currentWeightKg: 4.2,
     source: "sample",
@@ -171,6 +247,8 @@ const sampleCats = [
     coatPattern: "黒猫",
     photo: "🐈‍⬛",
     color: "#5C5048",
+    prefecture: "千葉県",
+    city: "浦安市",
     region: "千葉県浦安市",
     currentWeightKg: 5.1,
     source: "sample",
@@ -390,7 +468,9 @@ function validateCatForm(form) {
   const ageNum = Number(form.age);
   if (!Number.isInteger(ageNum) || ageNum < 0 || ageNum > 30) errors.push("年齢は0〜30の整数で入力してください。");
   if (!["♂", "♀"].includes(form.gender)) errors.push("性別は♂または♀を選択してください。");
-  if (!form.region.trim()) errors.push("地域は必須です。");
+  if (!form.prefecture.trim() && !(form.legacyRegion || "").trim()) {
+    errors.push("都道府県は必須です。");
+  }
   if (form.currentWeightKg !== "") {
     const weight = parseWeight(form.currentWeightKg);
     if (!hasAtMostOneDecimal(form.currentWeightKg) || Number.isNaN(weight) || weight <= 0 || weight >= 30) {
@@ -441,12 +521,20 @@ function normalizeLogsByCat(logsByCat) {
 
 function normalizeCats(cats) {
   if (!Array.isArray(cats)) return sampleCats;
-  return cats.map((cat) => ({
-    ...cat,
-    coatPattern: typeof cat.coatPattern === "string" ? cat.coatPattern : "",
-    photoImage: typeof cat.photoImage === "string" ? cat.photoImage : "",
-    currentWeightKg: formatWeight(cat.currentWeightKg) ?? "",
-  }));
+  return cats.map((cat) => {
+    const prefecture = typeof cat.prefecture === "string" ? cat.prefecture : inferPrefectureFromRegion(cat.region);
+    const city =
+      typeof cat.city === "string" ? cat.city : inferCityFromRegion(typeof cat.region === "string" ? cat.region : "", prefecture);
+    return {
+      ...cat,
+      prefecture,
+      city,
+      region: buildRegionText(prefecture, city, typeof cat.region === "string" ? cat.region : ""),
+      coatPattern: typeof cat.coatPattern === "string" ? cat.coatPattern : "",
+      photoImage: typeof cat.photoImage === "string" ? cat.photoImage : "",
+      currentWeightKg: formatWeight(cat.currentWeightKg) ?? "",
+    };
+  });
 }
 
 function hydrateLogDraft(log) {
@@ -744,6 +832,7 @@ function CatHealthApp() {
     const errors = validateCatForm(form);
     if (errors.length) return { ok: false, errors };
 
+    const region = buildRegionText(form.prefecture, form.city, form.legacyRegion);
     let createdCat = null;
     setData((prev) => {
       const id = prev.nextIds.cat + 1;
@@ -754,7 +843,9 @@ function CatHealthApp() {
         gender: form.gender,
         coatPattern: form.coatPattern.trim(),
         photo: "🐱",
-        region: form.region.trim(),
+        prefecture: form.prefecture.trim(),
+        city: form.city.trim(),
+        region,
         currentWeightKg: formatWeight(form.currentWeightKg) ?? "",
         photoImage: form.photoImage || "",
         source: "user",
@@ -779,6 +870,7 @@ function CatHealthApp() {
     const errors = validateCatForm(form);
     if (errors.length) return { ok: false, errors };
 
+    const region = buildRegionText(form.prefecture, form.city, form.legacyRegion);
     const target = data.cats.find((cat) => cat.id === catId);
     const updated = {
       ...target,
@@ -788,7 +880,9 @@ function CatHealthApp() {
       coatPattern: form.coatPattern.trim(),
       photo: target?.photo || "🐱",
       photoImage: form.photoImage || "",
-      region: form.region.trim(),
+      prefecture: form.prefecture.trim(),
+      city: form.city.trim(),
+      region,
       currentWeightKg: formatWeight(form.currentWeightKg) ?? "",
       updatedAt: new Date().toISOString(),
     };
@@ -1123,7 +1217,9 @@ function HomeView({
     gender: "♀",
     coatPattern: "",
     photoImage: "",
-    region: "",
+    prefecture: "",
+    city: "",
+    legacyRegion: "",
     currentWeightKg: "",
   });
   const selectedCat = cats.find((cat) => cat.id === selectedCatId) || cats[0] || null;
@@ -1136,7 +1232,9 @@ function HomeView({
       gender: "♀",
       coatPattern: "",
       photoImage: "",
-      region: "",
+      prefecture: "",
+      city: "",
+      legacyRegion: "",
       currentWeightKg: "",
     });
     setErrors([]);
@@ -1147,13 +1245,20 @@ function HomeView({
     setShowAdd(false);
     setErrors([]);
     onShowMessage("編集フォームを表示しました。");
+    const inferredPrefecture = typeof cat.prefecture === "string" && cat.prefecture ? cat.prefecture : inferPrefectureFromRegion(cat.region);
+    const inferredCity =
+      typeof cat.city === "string"
+        ? cat.city
+        : inferCityFromRegion(typeof cat.region === "string" ? cat.region : "", inferredPrefecture);
     setForm({
       name: cat.name,
       age: String(cat.age),
       gender: cat.gender,
       coatPattern: cat.coatPattern ?? "",
       photoImage: cat.photoImage || "",
-      region: cat.region,
+      prefecture: inferredPrefecture,
+      city: inferredCity,
+      legacyRegion: typeof cat.region === "string" ? cat.region : "",
       currentWeightKg: cat.currentWeightKg ?? "",
     });
   };
@@ -1340,8 +1445,28 @@ function HomeView({
               placeholder="例: 茶白、キジトラ、三毛"
             />
           </InputRow>
-          <InputRow label="地域">
-            <input value={form.region} onChange={(e) => setForm({ ...form, region: e.target.value })} style={inputStyle} />
+          <InputRow label="都道府県">
+            <select value={form.prefecture} onChange={(e) => setForm({ ...form, prefecture: e.target.value })} style={inputStyle}>
+              <option value="">選択してください</option>
+              {PREFECTURES.map((prefecture) => (
+                <option key={prefecture} value={prefecture}>
+                  {prefecture}
+                </option>
+              ))}
+            </select>
+          </InputRow>
+          <InputRow label="市区町村（任意）">
+            <input
+              value={form.city}
+              onChange={(e) => setForm({ ...form, city: e.target.value })}
+              style={inputStyle}
+              placeholder="例: 浦安市"
+            />
+            {!form.prefecture && form.legacyRegion ? (
+              <div style={{ fontSize: 11, color: palette.inkSoft, marginTop: 6 }}>
+                既存データの地域: {form.legacyRegion}
+              </div>
+            ) : null}
           </InputRow>
           <InputRow label="現在の体重(kg)">
             <input
