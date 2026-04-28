@@ -637,10 +637,6 @@ function hydrateLogDraft(log) {
 }
 
 function CatHealthApp() {
-  const [hasAcceptedPrivacyNotice, setHasAcceptedPrivacyNotice] = useState(() => {
-    return safeLocalStorageGet(PRIVACY_ACCEPTED_KEY) === "true";
-  });
-  const [privacyNoticeError, setPrivacyNoticeError] = useState("");
   const [localOwnerUid] = useState(() => getOrCreateAnonymousOwnerId());
   const [authOwnerUid, setAuthOwnerUid] = useState("");
   const [firestoreGateway] = useState(() => createFirestoreGateway());
@@ -1305,75 +1301,6 @@ function CatHealthApp() {
       </main>
 
       <BottomNav tab={tab} setTab={setTab} />
-      {!hasAcceptedPrivacyNotice && (
-        <PrivacyNoticeOverlay
-          errorMessage={privacyNoticeError}
-          onAccept={() => {
-            const saved = safeLocalStorageSet(PRIVACY_ACCEPTED_KEY, "true");
-            if (!saved) {
-              setPrivacyNoticeError("同意状態を端末に保存できませんでした。このまま利用は可能です。");
-            }
-            setHasAcceptedPrivacyNotice(true);
-          }}
-        />
-      )}
-    </div>
-  );
-}
-
-function PrivacyNoticeOverlay({ onAccept, errorMessage }) {
-  const [checked, setChecked] = useState(false);
-  return (
-    <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: "rgba(255, 249, 238, 0.96)",
-        zIndex: 50,
-        display: "flex",
-        justifyContent: "center",
-        alignItems: "flex-start",
-        overflowY: "auto",
-        padding: "24px 16px 112px",
-      }}
-    >
-      <div style={{ ...cardStyle, width: "100%", maxWidth: 480, margin: 0 }}>
-        <div style={{ fontSize: 11, color: palette.inkSoft, letterSpacing: "0.05em" }}>初回確認</div>
-        <div style={{ fontFamily: fontDisplay, fontSize: 20, fontWeight: 700, marginTop: 4 }}>プライバシーと利用上の注意</div>
-        <div style={{ fontSize: 12, color: palette.inkSoft, marginTop: 6, lineHeight: 1.6 }}>
-          安心して使っていただくために、最初にご確認ください。
-        </div>
-        <ul style={{ margin: "10px 0 0", paddingLeft: 16, display: "grid", gap: 6 }}>
-          <li style={{ fontSize: 12, color: palette.ink, lineHeight: 1.5 }}>日次記録、メモ、写真データは「みんな」画面には公開されません。</li>
-          <li style={{ fontSize: 12, color: palette.ink, lineHeight: 1.5 }}>
-            「みんな」画面に表示されるのは公開設定にした猫プロフィールのみです。
-          </li>
-          <li style={{ fontSize: 12, color: palette.ink, lineHeight: 1.5 }}>地域非公開を選ぶと、都道府県・市区町村は公開されません。</li>
-          <li style={{ fontSize: 12, color: palette.ink, lineHeight: 1.5 }}>本名、住所、電話番号などの個人情報は入力しないでください。</li>
-          <li style={{ fontSize: 12, color: palette.ink, lineHeight: 1.5 }}>にゃん・ノートは猫の日々の健康記録をサポートするサービスです。</li>
-          <li style={{ fontSize: 12, color: palette.ink, lineHeight: 1.5 }}>獣医療上の診断、治療、緊急時判断を行うものではありません。</li>
-          <li style={{ fontSize: 12, color: palette.ink, lineHeight: 1.5 }}>体調不良や異常がある場合は、獣医師に相談してください。</li>
-        </ul>
-        <a href="./privacy.html" style={{ display: "inline-block", marginTop: 10, color: palette.accent, fontSize: 12, textDecoration: "underline", fontWeight: 700 }}>
-          プライバシーポリシーを見る
-        </a>
-        {errorMessage && (
-          <div style={{ marginTop: 10, fontSize: 12, color: "#B00020", lineHeight: 1.6 }}>
-            {errorMessage}
-          </div>
-        )}
-        <label style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 12, fontSize: 12, color: palette.ink }}>
-          <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} style={{ marginTop: 2 }} />
-          <span>内容を確認しました</span>
-        </label>
-        <button
-          onClick={onAccept}
-          disabled={!checked}
-          style={{ ...buttonStyle, marginTop: 12, width: "100%", opacity: checked ? 1 : 0.55, cursor: checked ? "pointer" : "not-allowed" }}
-        >
-          はじめる
-        </button>
-      </div>
     </div>
   );
 }
