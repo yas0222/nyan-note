@@ -84,7 +84,7 @@ const PREFECTURES = [
   "沖縄県",
 ];
 
-const FIREBASE_CONFIG = {
+const PROD_FIREBASE_CONFIG = {
   apiKey: "AIzaSyD5YPd4OFIZZzsASOD8Rvv-kNP9hw-2O7o",
   authDomain: "neko222-ym.firebaseapp.com",
   projectId: "neko222-ym",
@@ -93,6 +93,25 @@ const FIREBASE_CONFIG = {
   appId: "1:694032444792:web:b367c565ad0d475978ec8d",
   measurementId: "G-KQGVBJPPDK",
 };
+
+const DEV_FIREBASE_CONFIG = {
+  apiKey: "AIzaSyDUYc5v-PUck-r6yj2xiWeW2HlwQaGrviE",
+  authDomain: "nyan-note-dev.firebaseapp.com",
+  projectId: "nyan-note-dev",
+  storageBucket: "nyan-note-dev.firebasestorage.app",
+  messagingSenderId: "938490750126",
+  appId: "1:938490750126:web:4d53464418c3186ddb793f",
+  measurementId: "G-Q6C1184LB5",
+};
+
+function isDevEnvironment() {
+  const path = typeof window !== "undefined" && window.location ? window.location.pathname || "" : "";
+  return path === "/nyan-note-dev/" || path.startsWith("/nyan-note-dev/");
+}
+
+function resolveFirebaseConfig() {
+  return isDevEnvironment() ? DEV_FIREBASE_CONFIG : PROD_FIREBASE_CONFIG;
+}
 
 function createAnonymousOwnerId() {
   const rand = Math.random().toString(36).slice(2, 10);
@@ -113,7 +132,9 @@ function hasFirebaseConfig(config) {
 }
 
 function createFirestoreGateway() {
-  if (!hasFirebaseConfig(FIREBASE_CONFIG)) {
+  const firebaseConfig = resolveFirebaseConfig();
+  const devEnvironment = isDevEnvironment();
+  if (!hasFirebaseConfig(firebaseConfig)) {
     return {
       enabled: false,
       db: null,
@@ -124,6 +145,7 @@ function createFirestoreGateway() {
       authInitStatus: "Firebase Auth 初期化失敗",
       initErrorMessage: "Firebase設定が未入力です",
       initErrorCode: "firebase/config-missing",
+      environmentLabel: devEnvironment ? "開発環境" : "",
     };
   }
 
@@ -132,9 +154,13 @@ function createFirestoreGateway() {
     if (!firebaseSdk) {
       throw new Error("Firebase SDKが読み込まれていません");
     }
-    firebaseSdk.apps.length ? firebaseSdk.app() : firebaseSdk.initializeApp(FIREBASE_CONFIG);
-    const db = firebaseSdk.firestore();
-    const auth = typeof firebaseSdk.auth === "function" ? firebaseSdk.auth() : null;
+    const appName = firebaseConfig.projectId || "[DEFAULT]";
+    const app =
+      firebaseSdk.apps && firebaseSdk.apps.some((existingApp) => existingApp && existingApp.name === appName)
+        ? firebaseSdk.app(appName)
+        : firebaseSdk.initializeApp(firebaseConfig, appName);
+    const db = app.firestore();
+    const auth = typeof firebaseSdk.auth === "function" ? firebaseSdk.auth(app) : null;
     return {
       enabled: true,
       db,
@@ -145,6 +171,7 @@ function createFirestoreGateway() {
       authInitStatus: auth ? "Firebase Auth 初期化成功" : "Firebase Auth 未読込",
       initErrorMessage: "",
       initErrorCode: "",
+      environmentLabel: devEnvironment ? "開発環境" : "",
     };
   } catch (e) {
     const details = getFirebaseErrorDetails(e);
@@ -160,6 +187,7 @@ function createFirestoreGateway() {
       authInitStatus: "Firebase Auth 初期化失敗",
       initErrorMessage: details.message,
       initErrorCode: details.code,
+      environmentLabel: devEnvironment ? "開発環境" : "",
     };
   }
 }
@@ -1368,7 +1396,7 @@ function CatHealthApp() {
         }}
       />
 
-      <Header />
+      <Header environmentLabel={firestoreGateway.environmentLabel} />
 
       <main style={{ position: "relative", zIndex: 2, padding: "0 20px", maxWidth: 480, margin: "0 auto" }}>
         {message && (
@@ -1455,7 +1483,7 @@ function EmptyCatPrompt({ onMoveLog }) {
   );
 }
 
-function Header() {
+function Header({ environmentLabel = "" }) {
   return (
     <header
       style={{
@@ -1489,6 +1517,9 @@ function Header() {
       >
         cat health journal
       </div>
+      {environmentLabel && (
+        <div style={{ fontSize: 10, color: palette.accent, marginTop: 6, letterSpacing: "0.08em" }}>{environmentLabel}</div>
+      )}
       <div
         style={{
           height: 1,
