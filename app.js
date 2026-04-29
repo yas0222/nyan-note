@@ -196,7 +196,7 @@ function inferCityFromRegion(region, prefecture) {
 }
 
 function getFirebaseErrorDetails(error) {
-  const code = error && typeof error.code === "string" ? error.code : "";
+  const code = error && typeof error.code === "string" && error.code.trim() ? error.code : "unknown";
   const message =
     error instanceof Error
       ? error.message
@@ -761,8 +761,28 @@ function CatHealthApp() {
     }));
   }, []);
 
+  const ensureAuthenticatedUid = useCallback(async () => {
+    if (!firestoreGateway.enabled || !firestoreGateway.auth) {
+      throw { code: "auth/not-available", message: "Firebase Authが初期化されていません" };
+    }
+    if (firestoreGateway.auth.currentUser?.uid) {
+      const uid = firestoreGateway.auth.currentUser.uid;
+      setAuthOwnerUid(uid);
+      return uid;
+    }
+    const result = await firestoreGateway.auth.signInAnonymously();
+    const uid = result?.user?.uid || firestoreGateway.auth.currentUser?.uid || "";
+    if (!uid) {
+      throw { code: "auth/uid-missing", message: "匿名ログイン後にuidを取得できませんでした" };
+    }
+    setAuthOwnerUid(uid);
+    return uid;
+  }, [firestoreGateway]);
+
+  const [publicCatsReloadToken, setPublicCatsReloadToken] = useState(0);
+
   const saveCatToCloud = async (cat) => {
-    const resolvedOwnerUid = ownerResolution.activeOwnerUid;
+    let resolvedOwnerUid = "";
     if (!firestoreGateway.enabled || !firestoreGateway.db) {
       updateFirestoreSaveDebug(
         "猫プロフィール",
@@ -781,6 +801,7 @@ function CatHealthApp() {
       return { ok: false };
     }
     try {
+      resolvedOwnerUid = await ensureAuthenticatedUid();
       const payload = toFirestoreCatPayload(cat, resolvedOwnerUid);
       await firestoreGateway.db.collection("cats").doc(String(cat.id)).set(payload, { merge: true });
       if (isPublicCatEnabled(cat)) {
@@ -796,6 +817,7 @@ function CatHealthApp() {
       }
       setFirebaseStatus("Firebase保存可能");
       updateFirestoreSaveDebug("猫プロフィール", true, resolvedOwnerUid);
+      setPublicCatsReloadToken((prev) => prev + 1);
       return { ok: true };
     } catch (e) {
       setFirebaseStatus("Firebase保存エラー");
@@ -824,7 +846,7 @@ function CatHealthApp() {
   };
 
   const saveRecordToCloud = async (record, catId) => {
-    const resolvedOwnerUid = ownerResolution.activeOwnerUid;
+    let resolvedOwnerUid = "";
     if (!firestoreGateway.enabled || !firestoreGateway.db) {
       updateFirestoreSaveDebug(
         "日次記録",
@@ -836,6 +858,7 @@ function CatHealthApp() {
       return { ok: false };
     }
     try {
+      resolvedOwnerUid = await ensureAuthenticatedUid();
       const payload = toFirestoreRecordPayload(record, catId, resolvedOwnerUid);
       await firestoreGateway.db.collection("records").doc(String(record.id)).set(payload, { merge: true });
       setFirebaseStatus("Firebase保存可能");
@@ -867,7 +890,7 @@ function CatHealthApp() {
     }
     try {
       const payload = omitUndefinedFields({
-        ownerUid: ownerResolution.activeOwnerUid,
+        ownerUid: await ensureAuthenticatedUid(),
         createdAt: new Date().toISOString(),
         message: "firestore test",
       });
@@ -927,8 +950,7 @@ function CatHealthApp() {
         authStatus: "匿名ログイン中",
       }));
       try {
-        const result = await firestoreGateway.auth.signInAnonymously();
-        const uid = result?.user?.uid || firestoreGateway.auth.currentUser?.uid || "";
+        const uid = firestoreGateway.auth.currentUser?.uid || (await firestoreGateway.auth.signInAnonymously())?.user?.uid || "";
         if (!uid) {
           throw new Error("匿名ログインでuidを取得できませんでした");
         }
@@ -2401,7 +2423,7 @@ function LogView({ cat, logs, saveLog, deleteLog, cats, setSelectedCat, onMoveHo
   );
 }
 
-function CommunityView({ firestoreGateway, authOwnerUid, authStatus, onUpdatePublicCatsLoadDebug }) {
+function CommunityView({ firestoreGateway, authOwnerUid, authStatus, onUpdatePublicCatsLoadDebug, reloadToken }) {
   const [publicCats, setPublicCats] = useState([]);
   const [loadState, setLoadState] = useState("idle");
   const [isLoading, setIsLoading] = useState(false);
@@ -2489,7 +2511,7 @@ function CommunityView({ firestoreGateway, authOwnerUid, authStatus, onUpdatePub
     return () => {
       cancelled = true;
     };
-  }, [authOwnerUid, authStatus, firestoreGateway, onUpdatePublicCatsLoadDebug, selectedPrefecture]);
+  }, [authOwnerUid, authStatus, firestoreGateway, onUpdatePublicCatsLoadDebug, selectedPrefecture, reloadToken]);
 
   return (
     <div>
@@ -2573,7 +2595,7 @@ function CommunityView({ firestoreGateway, authOwnerUid, authStatus, onUpdatePub
   );
 }
 
-function StatsView({ firestoreGateway, authOwnerUid, authStatus }) {
+function StatsView({ firestoreGateway, authOwnerUid, authStatus, reloadToken }) {
   const [publicCats, setPublicCats] = useState([]);
   const [loadState, setLoadState] = useState("idle");
   const [isLoading, setIsLoading] = useState(false);
@@ -2630,7 +2652,7 @@ function StatsView({ firestoreGateway, authOwnerUid, authStatus }) {
     return () => {
       cancelled = true;
     };
-  }, [authOwnerUid, authStatus, firestoreGateway]);
+  }, [authOwnerUid, authStatus, firestoreGateway, reloadToken]);
 
   const stats = useMemo(() => {
     const totalCount = publicCats.length;
