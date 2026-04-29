@@ -864,10 +864,6 @@ function CatHealthApp() {
 
   const saveRecordToCloud = async (record, catId) => {
     let resolvedOwnerUid = "";
-    let recordPath = "";
-    let existingDocExists = false;
-    let existingOwnerUid = "";
-    let authTokenUid = "";
     const collectionName = "records";
     const recordDate = record?.date || todayKey();
     const recordId = `record_v2_${resolvedOwnerUid || "pending"}_${String(catId)}_${recordDate}`;
@@ -886,33 +882,6 @@ function CatHealthApp() {
       resolvedOwnerUid = await ensureAuthenticatedUid();
       const safeRecordId = `record_v2_${resolvedOwnerUid}_${String(catId)}_${recordDate}`;
       const recordRef = firestoreGateway.db.collection(collectionName).doc(safeRecordId);
-      const currentUser = firestoreGateway.auth?.currentUser || null;
-      const tokenResult = currentUser ? await currentUser.getIdTokenResult() : null;
-      authTokenUid = tokenResult?.claims?.user_id || tokenResult?.claims?.sub || "";
-      recordPath = `${collectionName}/${safeRecordId}`;
-      const existingSnapshot = await recordRef.get();
-      existingDocExists = existingSnapshot.exists;
-      const existingData = existingSnapshot.exists ? existingSnapshot.data() || {} : {};
-      existingOwnerUid = typeof existingData.ownerUid === "string" ? existingData.ownerUid : "";
-      console.log("[Firestore] 日次記録保存前診断", {
-        authUid: currentUser?.uid || "",
-        authTokenUid: tokenResult?.claims?.user_id || tokenResult?.claims?.sub || "",
-        authAppName: firestoreGateway.auth?.app?.name || "",
-        dbAppName: firestoreGateway.db?.app?.name || "",
-        authProjectId: firestoreGateway.auth?.app?.options?.projectId || "",
-        dbProjectId: firestoreGateway.db?.app?.options?.projectId || "",
-        recordPath,
-        recordDocExists: existingSnapshot.exists,
-        existingOwnerUid,
-      });
-      if (existingSnapshot.exists) {
-        if (existingOwnerUid && existingOwnerUid !== resolvedOwnerUid) {
-          throw {
-            code: "records/owner-mismatch",
-            message: "既存の日次記録 ownerUid が現在の認証ユーザーと一致しないため更新できません",
-          };
-        }
-      }
       const payload = toFirestoreRecordPayload(record, catId, resolvedOwnerUid);
       await recordRef.set(payload, { merge: true });
       setFirebaseDebug((prev) => ({
@@ -924,14 +893,14 @@ function CatHealthApp() {
         lastRecordCatId: String(catId),
         lastRecordDate: recordDate,
         lastRecordWriteMode: operation,
-        lastRecordDocExists: existingDocExists ? "true" : "false",
-        lastRecordExistingOwnerUid: existingOwnerUid || "なし",
-        lastRecordAuthTokenUid: authTokenUid,
+        lastRecordDocExists: "not-checked",
+        lastRecordExistingOwnerUid: "not-checked",
+        lastRecordAuthTokenUid: "not-checked",
         lastAuthAppName: firestoreGateway.auth?.app?.name || "",
         lastDbAppName: firestoreGateway.db?.app?.name || "",
         lastAuthProjectId: firestoreGateway.auth?.app?.options?.projectId || "",
         lastDbProjectId: firestoreGateway.db?.app?.options?.projectId || "",
-        lastRecordPath: recordPath,
+        lastRecordPath: `${collectionName}/${safeRecordId}`,
       }));
       setFirebaseStatus("Firebase保存可能");
       updateFirestoreSaveDebug("日次記録", true, resolvedOwnerUid);
@@ -961,14 +930,14 @@ function CatHealthApp() {
         lastRecordCatId: String(catId),
         lastRecordDate: recordDate,
         lastRecordWriteMode: operation,
-        lastRecordDocExists: existingDocExists ? "true" : "false",
-        lastRecordExistingOwnerUid: existingOwnerUid || "なし",
-        lastRecordAuthTokenUid: authTokenUid,
+        lastRecordDocExists: "not-checked",
+        lastRecordExistingOwnerUid: "not-checked",
+        lastRecordAuthTokenUid: "not-checked",
         lastAuthAppName: firestoreGateway.auth?.app?.name || "",
         lastDbAppName: firestoreGateway.db?.app?.name || "",
         lastAuthProjectId: firestoreGateway.auth?.app?.options?.projectId || "",
         lastDbProjectId: firestoreGateway.db?.app?.options?.projectId || "",
-        lastRecordPath: recordPath,
+        lastRecordPath: `${collectionName}/record_v2_${resolvedOwnerUid || "missing"}_${String(catId)}_${recordDate}`,
       }));
       updateFirestoreSaveDebug("日次記録", false, resolvedOwnerUid, details.code, details.message);
       return {
@@ -1269,7 +1238,7 @@ function CatHealthApp() {
       setMessage("今日の記録を保存しました ✓ Firebaseにも保存済み");
     } else {
       setMessage(
-        `今日の記録を保存しました ✓ 端末には保存しましたが、Firebase保存に失敗しました（collection=${cloudResult.collectionName || "records"}, recordId=${cloudResult.recordId || "unknown"}, authUid=${cloudResult.authUid || "none"}, payload.ownerUid=${cloudResult.payloadOwnerUid || "none"}, catId=${cloudResult.catId || "unknown"}, recordDate=${cloudResult.recordDate || "unknown"}, op=${cloudResult.operation || "setDoc"}, code=${cloudResult.errorCode || "unknown"}, message=${cloudResult.errorMessage || "不明なエラー"}）`,
+        `今日の記録を保存しました ✓ 端末には保存しましたが、records setDoc 失敗（collection=${cloudResult.collectionName || "records"}, recordId=${cloudResult.recordId || "unknown"}, authUid=${cloudResult.authUid || "none"}, payload.ownerUid=${cloudResult.payloadOwnerUid || "none"}, catId=${cloudResult.catId || "unknown"}, recordDate=${cloudResult.recordDate || "unknown"}, op=${cloudResult.operation || "setDoc"}, code=${cloudResult.errorCode || "unknown"}, message=${cloudResult.errorMessage || "不明なエラー"}）`,
       );
     }
     return { ok: true };
