@@ -16,6 +16,7 @@ import {
 const STORAGE_KEY = "nyan-note-prototype-v1";
 const ANONYMOUS_OWNER_ID_KEY = "nyan-note-anonymous-owner-id-v1";
 const PRIVACY_ACCEPTED_KEY = "nyan-note-privacy-accepted-v1";
+const SHOW_DEV_MENU_IN_PUBLIC = false;
 
 function safeLocalStorageGet(key) {
   try {
@@ -1801,7 +1802,7 @@ function HomeView({
         </a>
       </div>
 
-      <div style={devMenuCardStyle}>
+      {SHOW_DEV_MENU_IN_PUBLIC && <div style={devMenuCardStyle}>
         <button type="button" onClick={() => setShowDevMenu((prev) => !prev)} style={devMenuToggleStyle}>
           開発用メニュー {showDevMenu ? "▲" : "▼"}
         </button>
@@ -1902,7 +1903,7 @@ function HomeView({
             </div>
           </>
         )}
-      </div>
+      </div>}
     </div>
   );
 }
