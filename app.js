@@ -13,9 +13,9 @@ import {
   Utensils,
 } from "lucide-react";
 
-const STORAGE_KEY = "nyan-note-prototype-v1";
-const ANONYMOUS_OWNER_ID_KEY = "nyan-note-anonymous-owner-id-v1";
-const PRIVACY_ACCEPTED_KEY = "nyan-note-privacy-accepted-v1";
+const STORAGE_KEY = "nyan-note-dev-prototype-v1";
+const ANONYMOUS_OWNER_ID_KEY = "nyan-note-dev-anonymous-owner-id-v1";
+const PRIVACY_ACCEPTED_KEY = "nyan-note-dev-privacy-accepted-v1";
 const SHOW_DEV_MENU_IN_PUBLIC = false;
 
 function safeLocalStorageGet(key) {
@@ -85,13 +85,13 @@ const PREFECTURES = [
 ];
 
 const FIREBASE_CONFIG = {
-  apiKey: "AIzaSyD5YPd4OFIZZzsASOD8Rvv-kNP9hw-2O7o",
-  authDomain: "neko222-ym.firebaseapp.com",
-  projectId: "neko222-ym",
-  storageBucket: "neko222-ym.firebasestorage.app",
-  messagingSenderId: "694032444792",
-  appId: "1:694032444792:web:b367c565ad0d475978ec8d",
-  measurementId: "G-KQGVBJPPDK",
+  apiKey: "AIzaSyDUYc5v-PUck-r6yj2xiWeW2HlwQaGrviE",
+  authDomain: "nyan-note-dev.firebaseapp.com",
+  projectId: "nyan-note-dev",
+  storageBucket: "nyan-note-dev.firebasestorage.app",
+  messagingSenderId: "938490750126",
+  appId: "1:938490750126:web:4d53464418c3186ddb793f",
+  measurementId: "G-Q6C1184LB5",
 };
 
 function createAnonymousOwnerId() {
@@ -1489,6 +1489,7 @@ function Header() {
       >
         cat health journal
       </div>
+      <div style={{ fontSize: 10, color: palette.accent, marginTop: 4 }}>開発環境</div>
       <div
         style={{
           height: 1,
