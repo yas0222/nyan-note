@@ -9,11 +9,11 @@
     <h1>にゃん・ノート 救済ページ</h1>
     <p>通常アプリが開けない場合、このページから localStorage のデータを確認・書き出しできます。</p>
     <button id="exportBtn">バックアップを書き出す</button>
-    <h2>localStorage: nyan-note-prototype-v1</h2>
+    <h2>localStorage: nyan-note-dev-prototype-v1</h2>
     <pre id="raw" style="white-space: pre-wrap; background: #f5f5f5; padding: 12px; border: 1px solid #ddd"></pre>
 
     <script>
-      const STORAGE_KEY = "nyan-note-prototype-v1";
+      const STORAGE_KEY = "nyan-note-dev-prototype-v1";
       const rawEl = document.getElementById("raw");
       const exportBtn = document.getElementById("exportBtn");
 
@@ -46,7 +46,7 @@
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = `nyan-note-rescue-backup-${getDateStamp()}.json`;
+        a.download = `nyan-note-dev-rescue-backup-${getDateStamp()}.json`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
