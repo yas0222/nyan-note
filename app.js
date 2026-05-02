@@ -2002,19 +2002,6 @@ function HomeView({
           ※現在β版です。表示や機能は予告なく変更される場合があります。
         </div>
       </div>
-      <details style={{ ...cardStyle, marginTop: 8, padding: "10px 12px" }}>
-        <summary style={{ cursor: "pointer", fontSize: 12, color: palette.inkSoft, fontWeight: 600 }}>保存状況</summary>
-        <div style={{ marginTop: 8, display: "grid", gap: 4 }}>
-          <div style={{ fontSize: 11, color: palette.inkSoft }}>authUid: {firebaseDebug.authUid || "なし"}</div>
-          <div style={{ fontSize: 11, color: palette.inkSoft }}>activeOwnerUid: {firebaseDebug.activeOwnerUid || "なし"}</div>
-          <div style={{ fontSize: 11, color: palette.inkSoft }}>ownerUidType: {firebaseDebug.ownerUidType}</div>
-          <div style={{ fontSize: 11, color: palette.inkSoft }}>lastCatSaveResult: {firebaseDebug.lastCatSaveResult}</div>
-          <div style={{ fontSize: 11, color: palette.inkSoft }}>lastPublicCatSaveResult: {firebaseDebug.lastPublicCatSaveResult}</div>
-          <div style={{ fontSize: 11, color: palette.inkSoft }}>lastErrorCode: {firebaseDebug.lastErrorCode || "なし"}</div>
-          <div style={{ fontSize: 11, color: palette.inkSoft }}>lastErrorMessage: {firebaseDebug.lastErrorMessage || "なし"}</div>
-        </div>
-      </details>
-
       {SHOW_DEV_MENU_IN_PUBLIC && <div style={devMenuCardStyle}>
         <button type="button" onClick={() => setShowDevMenu((prev) => !prev)} style={devMenuToggleStyle}>
           開発用メニュー {showDevMenu ? "▲" : "▼"}
