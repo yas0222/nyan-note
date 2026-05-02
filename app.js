@@ -310,6 +310,7 @@ function toFirestoreCatPayload(cat, ownerUid) {
     region: buildRegionText(prefecture, city, cat.region),
     publicRegionLevel: normalizePublicRegionLevel(cat.publicRegionLevel),
     publicId: cat.publicId || "",
+    sourceCatId: String(cat.id),
     profileVisibility: normalizeProfileVisibility(cat.profileVisibility),
     nameVisibility: normalizeNameVisibility(cat.nameVisibility),
     coatPattern: cat.coatPattern || "",
@@ -344,6 +345,24 @@ function toFirestoreRecordPayload(record, catId, ownerUid) {
     updatedAt: now,
   };
   return omitUndefinedFields(payload);
+}
+
+function toPublicFoodRecordPayload({ record, cat, ownerUid, publicFoodRecordId }) {
+  const now = new Date().toISOString();
+  return omitUndefinedFields({
+    ownerUid,
+    sourceCatId: String(cat.id),
+    publicFoodRecordId,
+    recordDate: record.date,
+    foodAmount: Number(record.foodTotal),
+    waterMl: Number(record.waterTotal),
+    treatLevel: typeof record.snack === "string" ? record.snack : "",
+    poopCount: Number(record.poop),
+    peeCount: Number(record.pee),
+    displayName: normalizeNameVisibility(cat.nameVisibility) === "private" ? "匿名のねこちゃん" : cat.name,
+    createdAt: record.createdAt || now,
+    updatedAt: now,
+  });
 }
 
 const sampleCats = [
@@ -548,6 +567,7 @@ function newLogDraft(date = todayKey()) {
     weightKg: "",
     memo: "",
     isPrivate: false,
+    shareWithCommunity: false,
   };
 }
 
@@ -629,6 +649,7 @@ function normalizeLogsByCat(logsByCat) {
           waterTotal: typeof row.waterTotal === "number" ? row.waterTotal : 0,
           weightKg: formatWeight(row.weightKg) ?? "",
           memo: typeof row.memo === "string" ? row.memo : "",
+          shareWithCommunity: Boolean(row.shareWithCommunity),
         }))
       : [];
   }
@@ -983,6 +1004,27 @@ function CatHealthApp() {
     }
   };
 
+  const syncPublicFoodRecord = async (record, catId) => {
+    if (!firestoreGateway.enabled || !firestoreGateway.db) return { ok: false };
+    const cat = data.cats.find((item) => item.id === catId);
+    if (!cat) return { ok: false };
+    const resolvedOwnerUid = await ensureAuthenticatedUid();
+    const recordDate = record?.date || todayKey();
+    const publicFoodRecordId = `public_food_${resolvedOwnerUid}${String(catId)}${recordDate}`;
+    const publicRef = firestoreGateway.db.collection("publicFoodRecords").doc(publicFoodRecordId);
+    const isProfilePublic = normalizeProfileVisibility(cat.profileVisibility) === "public";
+    if (!record.shareWithCommunity || !isProfilePublic) {
+      await publicRef.delete();
+      if (record.shareWithCommunity && !isProfilePublic) {
+        return { ok: true, skippedByPrivacy: true };
+      }
+      return { ok: true };
+    }
+    const payload = toPublicFoodRecordPayload({ record, cat, ownerUid: resolvedOwnerUid, publicFoodRecordId });
+    await publicRef.set(payload, { merge: true });
+    return { ok: true };
+  };
+
   const runFirestoreConnectionTest = async () => {
     if (!firestoreGateway.enabled || !firestoreGateway.db) {
       const code = "firestore/not-initialized";
@@ -1026,10 +1068,14 @@ function CatHealthApp() {
     }
   };
 
-  const deleteRecordFromCloud = async (logId) => {
+  const deleteRecordFromCloud = async (catId, recordDate) => {
     if (!firestoreGateway.enabled || !firestoreGateway.db) return;
     try {
-      await firestoreGateway.db.collection("records").doc(String(logId)).delete();
+      const resolvedOwnerUid = await ensureAuthenticatedUid();
+      const safeRecordId = `record_v2_${resolvedOwnerUid}_${String(catId)}_${recordDate}`;
+      const publicFoodRecordId = `public_food_${resolvedOwnerUid}${String(catId)}${recordDate}`;
+      await firestoreGateway.db.collection("records").doc(safeRecordId).delete();
+      await firestoreGateway.db.collection("publicFoodRecords").doc(publicFoodRecordId).delete();
       setFirebaseStatus("Firebase保存可能");
     } catch (_e) {
       setFirebaseStatus("Firebase保存エラー");
@@ -1201,7 +1247,7 @@ function CatHealthApp() {
       delete nextLogs[catId];
       return { ...prev, cats: nextCats, logsByCat: nextLogs };
     });
-    relatedLogs.forEach((log) => deleteRecordFromCloud(log.id));
+    relatedLogs.forEach((log) => deleteRecordFromCloud(catId, log.date));
     deleteCatFromCloud(catId);
     setMessage("猫プロフィールを削除しました。");
   };
@@ -1262,12 +1308,16 @@ function CatHealthApp() {
     const cloudResult = recordForCloud
       ? await saveRecordToCloud(recordForCloud, catId)
       : { ok: false, errorCode: "records/not-created", errorMessage: "日次記録データを作成できませんでした" };
+    let publicResult = { skippedByPrivacy: false };
+    if (recordForCloud) {
+      try {
+        publicResult = await syncPublicFoodRecord(recordForCloud, catId);
+      } catch (_e) {}
+    }
     if (cloudResult.ok) {
-      setMessage("今日の記録を保存しました");
+      setMessage(publicResult.skippedByPrivacy ? "今日の記録を保存しました（プロフィール非公開のため、みんなには共有されません）" : "今日の記録を保存しました");
     } else {
-      setMessage(
-        `今日の記録を保存しました ✓ 端末には保存しましたが、records setDoc 失敗（collection=${cloudResult.collectionName || "records"}, recordId=${cloudResult.recordId || "unknown"}, authUid=${cloudResult.authUid || "none"}, payload.ownerUid=${cloudResult.payloadOwnerUid || "none"}, catId=${cloudResult.catId || "unknown"}, recordDate=${cloudResult.recordDate || "unknown"}, op=${cloudResult.operation || "setDoc"}, code=${cloudResult.errorCode || "unknown"}, message=${cloudResult.errorMessage || "不明なエラー"}）`,
-      );
+      setMessage("今日の記録を保存しました（クラウド同期で一部失敗しました）");
     }
     return { ok: true };
   };
@@ -1284,7 +1334,8 @@ function CatHealthApp() {
         },
       };
     });
-    deleteRecordFromCloud(logId);
+    const target = (data.logsByCat[catId] || []).find((row) => row.id === logId);
+    if (target) deleteRecordFromCloud(catId, target.date);
     setMessage("日次記録を削除しました。");
   };
 
@@ -1890,16 +1941,16 @@ function HomeView({
         </div>
         <ul style={{ margin: 0, paddingLeft: 16, display: "grid", gap: 4 }}>
           <li style={{ fontSize: 12, color: palette.ink, lineHeight: 1.5 }}>
-            日次記録、メモ、写真データは「みんな」画面には公開されません。
+            通常、日次記録は「みんな」画面には公開されません。
           </li>
           <li style={{ fontSize: 12, color: palette.ink, lineHeight: 1.5 }}>
-            「みんな」画面に表示されるのは公開プロフィールのみです。
+            「今日の記録をみんなに共有する」をONにした場合のみ、ごはん量・飲水量・おやつ・うんち回数・おしっこ回数が公開プロフィールカード内に表示されます。
           </li>
           <li style={{ fontSize: 12, color: palette.ink, lineHeight: 1.5 }}>
-            地域非公開を選ぶと、都道府県・市区町村は公開されません。
+            メモ、写真、体重は「みんな」画面には公開されません。猫ちゃんの名前や地域の表示はプロフィール公開設定に従います。
           </li>
           <li style={{ fontSize: 12, color: palette.ink, lineHeight: 1.5 }}>
-            本名、住所、電話番号などの個人情報は入力しないでください。
+            共有をOFFにして保存すると、共有されていた今日の記録は「みんな」画面から削除されます。このアプリは診断や治療を目的としたものではありません。
           </li>
         </ul>
         <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
@@ -1989,10 +2040,10 @@ function HomeView({
                   日次記録・メモ・写真データは「みんな」画面に公開されません。
                 </li>
                 <li style={{ fontSize: 12, color: palette.ink, lineHeight: 1.5 }}>
-                  「みんな」画面に表示されるのは公開プロフィールのみです。
+                  「今日の記録をみんなに共有する」をONにした場合のみ、ごはん量・飲水量・おやつ・うんち回数・おしっこ回数が公開プロフィールカード内に表示されます。
                 </li>
                 <li style={{ fontSize: 12, color: palette.ink, lineHeight: 1.5 }}>
-                  地域非公開を選ぶと、都道府県・市区町村は公開されません。
+                  メモ、写真、体重は「みんな」画面には公開されません。猫ちゃんの名前や地域の表示はプロフィール公開設定に従います。
                 </li>
                 <li style={{ fontSize: 12, color: palette.ink, lineHeight: 1.5 }}>
                   本名・住所・電話番号などの個人情報は入力しないでください。
@@ -2343,6 +2394,18 @@ function LogView({ cat, logs, saveLog, deleteLog, cats, setSelectedCat, onMoveHo
       </div>
 
       <div style={cardStyle}>
+        <Label>🌏 共有設定</Label>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: palette.ink, cursor: "pointer" }}>
+          <input
+            type="checkbox"
+            checked={Boolean(draft.shareWithCommunity)}
+            onChange={(e) => setDraft({ ...draft, shareWithCommunity: e.target.checked })}
+          />
+          今日の記録をみんなに共有する
+        </label>
+      </div>
+
+      <div style={cardStyle}>
         <button
           onClick={() => setDraft({ ...draft, isPrivate: !draft.isPrivate })}
           style={{
@@ -2641,21 +2704,33 @@ function CommunityView({ firestoreGateway, authOwnerUid, authStatus, onUpdatePub
             prefecture: typeof data.prefecture === "string" ? data.prefecture.trim() : "",
             publicRegionLevel,
             publicRegionLabel: typeof data.publicRegionLabel === "string" ? data.publicRegionLabel : "地域非公開",
+            ownerUid: typeof data.ownerUid === "string" ? data.ownerUid : "",
+            sourceCatId: typeof data.sourceCatId === "string" ? data.sourceCatId : "",
           };
         });
+        const foodSnap = await firestoreGateway.db.collection("publicFoodRecords").orderBy("updatedAt", "desc").limit(500).get();
+        const foodMap = {};
+        foodSnap.docs.forEach((doc) => {
+          const row = doc.data() || {};
+          const key = `${row.ownerUid || ""}__${row.sourceCatId || ""}`;
+          if (!key || key === "__") return;
+          const prev = foodMap[key];
+          if (!prev || String(prev.recordDate || "") < String(row.recordDate || "")) foodMap[key] = row;
+        });
+        const itemsWithFood = items.map((cat) => ({ ...cat, publicFood: foodMap[`${cat.ownerUid}__${cat.sourceCatId}`] || null }));
         if (cancelled) return;
-        setPublicCats(items);
+        setPublicCats(itemsWithFood);
         const filteredItems =
           selectedPrefecture === "すべて"
-            ? items
-            : items.filter(
+            ? itemsWithFood
+            : itemsWithFood.filter(
                 (cat) =>
                   cat.publicRegionLevel !== "none" &&
                   cat.publicRegionLabel !== "地域非公開" &&
                   cat.prefecture === selectedPrefecture,
               );
         setLoadState(filteredItems.length === 0 ? "empty" : "loaded");
-        onUpdatePublicCatsLoadDebug(items.length === 0 ? "0件" : "読み込み成功", "", "", conditionText);
+        onUpdatePublicCatsLoadDebug(itemsWithFood.length === 0 ? "0件" : "読み込み成功", "", "", conditionText);
       } catch (e) {
         if (cancelled) return;
         console.error("[Firestore] publicCats 読み込み失敗", e);
@@ -2746,11 +2821,20 @@ function CommunityView({ firestoreGateway, authOwnerUid, authStatus, onUpdatePub
               <div style={{ fontSize: 11, color: palette.inkSoft, marginBottom: 8 }}>
                 {cat.publicRegionLabel} · {cat.age == null ? "年齢不明" : `${cat.age}歳`}
               </div>
-              <div style={{ display: "flex", gap: 10, fontSize: 11, color: palette.ink, flexWrap: "wrap" }}>
-                <Tag>性別 {cat.sex || "未設定"}</Tag>
-                <Tag>毛色・柄 {cat.coatPattern || "未設定"}</Tag>
+                <div style={{ display: "flex", gap: 10, fontSize: 11, color: palette.ink, flexWrap: "wrap" }}>
+                  <Tag>性別 {cat.sex || "未設定"}</Tag>
+                  <Tag>毛色・柄 {cat.coatPattern || "未設定"}</Tag>
+                </div>
+                {cat.publicFood && (
+                  <div style={{ marginTop: 8, fontSize: 12, color: palette.ink, lineHeight: 1.6 }}>
+                    {Number(cat.publicFood.foodAmount) > 0 ? <div>🍚 {cat.publicFood.recordDate === todayKey() ? "今日のごはん" : `${cat.publicFood.recordDate}のごはん`} {Number(cat.publicFood.foodAmount)}g</div> : null}
+                    {Number(cat.publicFood.waterMl) > 0 ? <div>💧 飲水 {Number(cat.publicFood.waterMl)}ml</div> : null}
+                    {typeof cat.publicFood.treatLevel === "string" && cat.publicFood.treatLevel ? <div>🍪 おやつ {cat.publicFood.treatLevel}</div> : null}
+                    {Number.isFinite(Number(cat.publicFood.poopCount)) && Number(cat.publicFood.poopCount) >= 0 ? <div>💩 うんち {Number(cat.publicFood.poopCount)}回</div> : null}
+                    {Number.isFinite(Number(cat.publicFood.peeCount)) && Number(cat.publicFood.peeCount) >= 0 ? <div>🚽 おしっこ {Number(cat.publicFood.peeCount)}回</div> : null}
+                  </div>
+                )}
               </div>
-            </div>
           </div>
         ))}
     </div>
