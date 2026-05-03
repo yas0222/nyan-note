@@ -346,12 +346,14 @@ function toFirestoreRecordPayload(record, catId, ownerUid) {
 
 function toPublicFoodRecordPayload({ record, cat, ownerUid, publicFoodRecordId }) {
   const now = new Date().toISOString();
+  const resolvedPublicId = String(cat.publicId || record?.publicId || "");
+  const resolvedCloudId = String(cat.cloudId || record?.cloudId || "");
   return omitUndefinedFields({
     ownerUid,
-    publicId: String(cat.publicId || ""),
+    publicId: resolvedPublicId,
     sourceCatId: String(cat.id),
     catId: String(cat.id),
-    cloudId: String(cat.cloudId || ""),
+    cloudId: resolvedCloudId,
     publicFoodRecordId,
     recordDate: record.date,
     foodAmount: Number(record.foodTotal),
@@ -842,6 +844,7 @@ function CatHealthApp() {
     publicRecordLoadFirstDocId: "",
     publicRecordLoadFirstRecordDate: "",
     publicRecordLoadFirstPublicId: "",
+    publicRecordLoadFirstCloudId: "",
     publicRecordLoadFirstSourceCatId: "",
     publicRecordLoadFirstCatId: "",
     publicJoinMethod: "",
@@ -850,6 +853,8 @@ function CatHealthApp() {
     publicJoinMatchedCount: "",
     publicJoinFirstCatPublicId: "",
     publicJoinFirstRecordPublicId: "",
+    publicJoinFirstCatCloudId: "",
+    publicJoinFirstRecordCloudId: "",
     publicJoinFirstCatSourceCatId: "",
     publicJoinFirstRecordSourceCatId: "",
     previousAnonymousUid: "",
@@ -1093,6 +1098,11 @@ function CatHealthApp() {
   }, [firestoreGateway, isGoogleLoginInProgress]);
 
   const [publicCatsReloadToken, setPublicCatsReloadToken] = useState(0);
+  useEffect(() => {
+    if (tab === "community") {
+      setPublicCatsReloadToken((prev) => prev + 1);
+    }
+  }, [tab]);
 
   const saveCatToCloud = async (cat) => {
     const catLocalId = String(cat?.localId || cat?.id || "");
@@ -2071,6 +2081,7 @@ function CatHealthApp() {
               `publicRecordLoad.firstDocId: ${firebaseDebug.publicRecordLoadFirstDocId || ""}`,
               `publicRecordLoad.firstRecordDate: ${firebaseDebug.publicRecordLoadFirstRecordDate || ""}`,
               `publicRecordLoad.firstPublicId: ${firebaseDebug.publicRecordLoadFirstPublicId || ""}`,
+              `publicRecordLoad.firstCloudId: ${firebaseDebug.publicRecordLoadFirstCloudId || ""}`,
               `publicRecordLoad.firstSourceCatId: ${firebaseDebug.publicRecordLoadFirstSourceCatId || ""}`,
               `publicRecordLoad.firstCatId: ${firebaseDebug.publicRecordLoadFirstCatId || ""}`,
               `publicJoin.method: ${firebaseDebug.publicJoinMethod || ""}`,
@@ -2079,6 +2090,8 @@ function CatHealthApp() {
               `publicJoin.matchedCount: ${firebaseDebug.publicJoinMatchedCount || ""}`,
               `publicJoin.firstCatPublicId: ${firebaseDebug.publicJoinFirstCatPublicId || ""}`,
               `publicJoin.firstRecordPublicId: ${firebaseDebug.publicJoinFirstRecordPublicId || ""}`,
+              `publicJoin.firstCatCloudId: ${firebaseDebug.publicJoinFirstCatCloudId || ""}`,
+              `publicJoin.firstRecordCloudId: ${firebaseDebug.publicJoinFirstRecordCloudId || ""}`,
               `publicJoin.firstCatSourceCatId: ${firebaseDebug.publicJoinFirstCatSourceCatId || ""}`,
               `publicJoin.firstRecordSourceCatId: ${firebaseDebug.publicJoinFirstRecordSourceCatId || ""}`,
             ].join("\n")}
@@ -3249,6 +3262,7 @@ function CommunityView({ firestoreGateway, authOwnerUid, authStatus, onUpdatePub
           publicRecordLoadFirstDocId: firstFood.id || "",
           publicRecordLoadFirstRecordDate: String(firstFood.recordDate || ""),
           publicRecordLoadFirstPublicId: String(firstFood.publicId || ""),
+          publicRecordLoadFirstCloudId: String(firstFood.cloudId || ""),
           publicRecordLoadFirstSourceCatId: String(firstFood.sourceCatId || ""),
           publicRecordLoadFirstCatId: String(firstFood.catId || ""),
         });
@@ -3274,6 +3288,8 @@ function CommunityView({ firestoreGateway, authOwnerUid, authStatus, onUpdatePub
           publicJoinMatchedCount: String(matchedCount),
           publicJoinFirstCatPublicId: String(items[0]?.publicId || ""),
           publicJoinFirstRecordPublicId: String(firstFood.publicId || ""),
+          publicJoinFirstCatCloudId: String(items[0]?.cloudId || ""),
+          publicJoinFirstRecordCloudId: String(firstFood.cloudId || ""),
           publicJoinFirstCatSourceCatId: String(items[0]?.sourceCatId || ""),
           publicJoinFirstRecordSourceCatId: String(firstFood.sourceCatId || ""),
         });
@@ -3305,6 +3321,22 @@ function CommunityView({ firestoreGateway, authOwnerUid, authStatus, onUpdatePub
           publicRecordLoadCount: "0",
           publicRecordLoadErrorCode: details.code,
           publicRecordLoadErrorMessage: details.message,
+          publicRecordLoadFirstDocId: "",
+          publicRecordLoadFirstRecordDate: "",
+          publicRecordLoadFirstPublicId: "",
+          publicRecordLoadFirstCloudId: "",
+          publicRecordLoadFirstSourceCatId: "",
+          publicRecordLoadFirstCatId: "",
+          publicJoinMethod: "",
+          publicJoinPublicCatsCount: "",
+          publicJoinPublicRecordsCount: "",
+          publicJoinMatchedCount: "",
+          publicJoinFirstCatPublicId: "",
+          publicJoinFirstRecordPublicId: "",
+          publicJoinFirstCatCloudId: "",
+          publicJoinFirstRecordCloudId: "",
+          publicJoinFirstCatSourceCatId: "",
+          publicJoinFirstRecordSourceCatId: "",
         });
       } finally {
         if (cancelled) return;
