@@ -789,6 +789,15 @@ function CatHealthApp() {
     catSavePayloadVisibility: "",
     catSavePayloadProfileVisibility: "",
     catSavePayloadNameVisibility: "",
+    catSaveAuthPhase: "",
+    catSaveAuthUserUidBeforeWrite: "",
+    catSaveAuthUserIsAnonymousBeforeWrite: "",
+    catSaveAuthUserProviderIdsBeforeWrite: "",
+    catSaveIdTokenUidBeforeWrite: "",
+    catSaveIdTokenSignInProvider: "",
+    catSaveIdTokenAuthTime: "",
+    catSaveAuthUidVsTokenUid: "",
+    catSaveAuthUidVsPayloadOwnerUid: "",
     catSaveResult: "",
     catSaveErrorCode: "",
     catSaveErrorMessage: "",
@@ -1053,6 +1062,15 @@ function CatHealthApp() {
     let payloadVisibility = "";
     let payloadProfileVisibility = "";
     let payloadNameVisibility = "";
+    let catSaveAuthPhase = "preflight";
+    let authUserUidBeforeWrite = "";
+    let authUserIsAnonymousBeforeWrite = "";
+    let authUserProviderIdsBeforeWrite = "";
+    let idTokenUidBeforeWrite = "";
+    let idTokenSignInProvider = "";
+    let idTokenAuthTime = "";
+    let authUidVsTokenUid = "";
+    let authUidVsPayloadOwnerUid = "";
     const setCatSaveDebug = ({ result = "", errorCode = "", errorMessage = "" }) => {
       setFirebaseDebug((prev) => ({
         ...prev,
@@ -1078,6 +1096,15 @@ function CatHealthApp() {
         catSavePayloadVisibility: payloadVisibility,
         catSavePayloadProfileVisibility: payloadProfileVisibility,
         catSavePayloadNameVisibility: payloadNameVisibility,
+        catSaveAuthPhase,
+        catSaveAuthUserUidBeforeWrite: authUserUidBeforeWrite,
+        catSaveAuthUserIsAnonymousBeforeWrite: authUserIsAnonymousBeforeWrite,
+        catSaveAuthUserProviderIdsBeforeWrite: authUserProviderIdsBeforeWrite,
+        catSaveIdTokenUidBeforeWrite: idTokenUidBeforeWrite,
+        catSaveIdTokenSignInProvider: idTokenSignInProvider,
+        catSaveIdTokenAuthTime: idTokenAuthTime,
+        catSaveAuthUidVsTokenUid: authUidVsTokenUid,
+        catSaveAuthUidVsPayloadOwnerUid: authUidVsPayloadOwnerUid,
         catSaveResult: result,
         catSaveErrorCode: errorCode,
         catSaveErrorMessage: errorMessage,
@@ -1126,8 +1153,27 @@ function CatHealthApp() {
         firestoreDocId = generatedCloudId;
         catSaveMode = "create";
       }
-      const payload = toFirestoreCatPayload(cat, currentAuthUid);
-      payload.ownerUid = currentAuthUid;
+      const currentUser = firestoreGateway.auth?.currentUser || null;
+      if (!currentUser) {
+        catSaveMode = "localOnly";
+        firestoreCatExists = "false";
+        firestoreCatOwnerUid = "";
+        const message = "保存直前に currentUser が null のためクラウド保存をスキップしました";
+        setCatSaveDebug({ result: "blocked:missing-current-user-before-write", errorCode: "auth/missing-current-user", errorMessage: message });
+        updateFirestoreSaveDebug("猫プロフィール", false, currentAuthUid, "auth/missing-current-user", message);
+        setFirebaseDebug((prev) => ({ ...prev, lastPublicCatSaveResult: "公開プロフィール: 未実行（currentUserなし）" }));
+        return { ok: false, reason: "missing-current-user-before-write" };
+      }
+      const tokenResult = await currentUser.getIdTokenResult(true);
+      authUserUidBeforeWrite = String(currentUser.uid || "");
+      authUserIsAnonymousBeforeWrite = String(Boolean(currentUser.isAnonymous));
+      authUserProviderIdsBeforeWrite = (currentUser.providerData || []).map((p) => p?.providerId).filter(Boolean).join(",");
+      idTokenUidBeforeWrite = String(tokenResult?.claims?.user_id || tokenResult?.claims?.sub || "");
+      idTokenSignInProvider = String(tokenResult?.signInProvider || tokenResult?.claims?.firebase?.sign_in_provider || "");
+      idTokenAuthTime = String(tokenResult?.claims?.auth_time || "");
+      authUidVsTokenUid = authUserUidBeforeWrite && idTokenUidBeforeWrite ? String(authUserUidBeforeWrite === idTokenUidBeforeWrite) : "";
+      const payload = toFirestoreCatPayload(cat, authUserUidBeforeWrite);
+      payload.ownerUid = authUserUidBeforeWrite;
       // Firestore Rules の strict validation（keys whitelist / immutable fields）を想定し、
       // ドキュメント外メタ情報は payload へ入れずデバッグ表示のみに残す。
       payload.sourceCatId = String(cat?.id || "");
@@ -1141,6 +1187,7 @@ function CatHealthApp() {
       payloadVisibility = typeof payload.visibility === "string" ? payload.visibility : "";
       payloadProfileVisibility = typeof payload.profileVisibility === "string" ? payload.profileVisibility : "";
       payloadNameVisibility = typeof payload.nameVisibility === "string" ? payload.nameVisibility : "";
+      authUidVsPayloadOwnerUid = authUserUidBeforeWrite && payloadOwnerUid ? String(authUserUidBeforeWrite === payloadOwnerUid) : "";
       if (!payloadOwnerUid) {
         catSaveMode = "localOnly";
         const message = "ownerUid が空のためクラウド保存をスキップしました";
@@ -1149,7 +1196,18 @@ function CatHealthApp() {
         setFirebaseDebug((prev) => ({ ...prev, lastPublicCatSaveResult: "公開プロフィール: 未実行（ownerUidなし）" }));
         return { ok: false, reason: "missing-owner-uid" };
       }
+      if (payloadOwnerUid !== authUserUidBeforeWrite) {
+        catSaveMode = "localOnly";
+        const message = "payload.ownerUid と currentUser.uid が不一致のためクラウド保存をスキップしました";
+        setCatSaveDebug({ result: "blocked:owner-uid-mismatch-before-write", errorCode: "cat/owner-uid-mismatch-before-write", errorMessage: message });
+        updateFirestoreSaveDebug("猫プロフィール", false, authUserUidBeforeWrite, "cat/owner-uid-mismatch-before-write", message);
+        setFirebaseDebug((prev) => ({ ...prev, lastPublicCatSaveResult: "公開プロフィール: 未実行（ownerUid不一致）" }));
+        return { ok: false, reason: "owner-uid-mismatch-before-write" };
+      }
+      catSaveAuthPhase = "before-write";
+      setCatSaveDebug({ result: "ready:before-write" });
       await catRef.set(payload, { merge: true });
+      catSaveAuthPhase = "after-write";
       if (isPublicCatEnabled(cat)) {
         const publicPayload = toPublicCatPayload(cat, currentAuthUid);
         await firestoreGateway.db.collection("publicCats").doc(String(cat.publicId)).set(publicPayload, { merge: true });
@@ -1819,6 +1877,15 @@ function CatHealthApp() {
               `catSave.payload.visibility: ${firebaseDebug.catSavePayloadVisibility || ""}`,
               `catSave.payload.profileVisibility: ${firebaseDebug.catSavePayloadProfileVisibility || ""}`,
               `catSave.payload.nameVisibility: ${firebaseDebug.catSavePayloadNameVisibility || ""}`,
+              `catSave.authPhase: ${firebaseDebug.catSaveAuthPhase || ""}`,
+              `catSave.authUserUidBeforeWrite: ${firebaseDebug.catSaveAuthUserUidBeforeWrite || ""}`,
+              `catSave.authUserIsAnonymousBeforeWrite: ${firebaseDebug.catSaveAuthUserIsAnonymousBeforeWrite || ""}`,
+              `catSave.authUserProviderIdsBeforeWrite: ${firebaseDebug.catSaveAuthUserProviderIdsBeforeWrite || ""}`,
+              `catSave.idTokenUidBeforeWrite: ${firebaseDebug.catSaveIdTokenUidBeforeWrite || ""}`,
+              `catSave.idTokenSignInProvider: ${firebaseDebug.catSaveIdTokenSignInProvider || ""}`,
+              `catSave.idTokenAuthTime: ${firebaseDebug.catSaveIdTokenAuthTime || ""}`,
+              `catSave.authUidVsTokenUid: ${firebaseDebug.catSaveAuthUidVsTokenUid || ""}`,
+              `catSave.authUidVsPayloadOwnerUid: ${firebaseDebug.catSaveAuthUidVsPayloadOwnerUid || ""}`,
               `catSave.saveMode: ${firebaseDebug.catSaveMode || ""}`,
               `catSave.action: ${firebaseDebug.catSaveAction || ""}`,
               `catSave.result: ${firebaseDebug.catSaveResult || ""}`,
