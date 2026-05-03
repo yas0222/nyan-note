@@ -17,6 +17,7 @@ const STORAGE_KEY = "nyan-note-prototype-v1";
 const ANONYMOUS_OWNER_ID_KEY = "nyan-note-anonymous-owner-id-v1";
 const PRIVACY_ACCEPTED_KEY = "nyan-note-privacy-accepted-v1";
 const SHOW_DEV_MENU_IN_PUBLIC = false;
+const AUTH_DEBUG_ENABLED = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("authDebug") === "1";
 
 function safeLocalStorageGet(key) {
   try {
@@ -714,6 +715,7 @@ function CatHealthApp() {
   const [localOwnerUid] = useState(() => getOrCreateAnonymousOwnerId());
   const [authOwnerUid, setAuthOwnerUid] = useState("");
   const [authUserInfo, setAuthUserInfo] = useState({ status: "未認証", isGoogleLinked: false, userLabel: "" });
+  const [authBootstrapCompleted, setAuthBootstrapCompleted] = useState(false);
   const [firestoreGateway] = useState(() => createFirestoreGateway());
   const [firebaseStatus, setFirebaseStatus] = useState(
     firestoreGateway.firestoreInitStatus === "Firestore 初期化成功" ? "Firebase保存可能" : "Firebase保存エラー",
@@ -753,6 +755,12 @@ function CatHealthApp() {
     lastRecordPath: "未実行",
     lastErrorCode: firestoreGateway.initErrorCode || "",
     lastErrorMessage: firestoreGateway.initErrorMessage || "",
+    lastAuthAction: "未実行",
+    lastAuthResult: "未実行",
+    lastAuthErrorCode: "",
+    lastAuthErrorMessage: "",
+    usingPopupAuth: true,
+    redirectMethodsPresent: false,
   }));
   const ownerResolution = useMemo(() => {
     const authUidFromCurrentUser = firestoreGateway.auth?.currentUser?.uid || "";
@@ -833,6 +841,9 @@ function CatHealthApp() {
     if (!firestoreGateway.enabled || !firestoreGateway.auth) {
       throw { code: "auth/not-available", message: "Firebase Authが初期化されていません" };
     }
+    if (!authBootstrapCompleted) {
+      throw { code: "auth/bootstrap-pending", message: "認証復元が完了するまでお待ちください" };
+    }
     if (!firestoreGateway.auth.currentUser?.uid) {
       await firestoreGateway.auth.signInAnonymously();
     }
@@ -844,7 +855,7 @@ function CatHealthApp() {
     await currentUser.getIdToken(true);
     setAuthOwnerUid(uid);
     return uid;
-  }, [firestoreGateway]);
+  }, [authBootstrapCompleted, firestoreGateway]);
 
   const signInWithGoogle = useCallback(async () => {
     if (!firestoreGateway.enabled || !firestoreGateway.auth || !window.firebase?.auth) {
@@ -854,19 +865,35 @@ function CatHealthApp() {
     try {
       const provider = new window.firebase.auth.GoogleAuthProvider();
       const currentUser = firestoreGateway.auth.currentUser;
-      if (currentUser?.uid && currentUser.isAnonymous) {
+      const providerIds = Array.isArray(currentUser?.providerData)
+        ? currentUser.providerData.map((p) => p?.providerId).filter(Boolean)
+        : [];
+      const shouldLinkAnonymous = Boolean(currentUser?.uid && currentUser?.isAnonymous && !providerIds.includes("google.com"));
+      setFirebaseDebug((prev) => ({ ...prev, lastAuthAction: shouldLinkAnonymous ? "linkWithPopup" : "signInWithPopup" }));
+      if (shouldLinkAnonymous) {
         await currentUser.linkWithPopup(provider);
       } else {
         await firestoreGateway.auth.signInWithPopup(provider);
       }
+      setFirebaseDebug((prev) => ({ ...prev, lastAuthResult: "success", lastAuthErrorCode: "", lastAuthErrorMessage: "" }));
       setMessage("Googleログインが完了しました。");
     } catch (e) {
       const details = getFirebaseErrorDetails(e);
-      if (details.code === "auth/credential-already-in-use") {
-        setMessage("このGoogleアカウントは、すでに別のユーザーに紐づいています。別のアカウントを使うか、サポートにご相談ください。");
+      setFirebaseDebug((prev) => ({
+        ...prev,
+        lastAuthResult: "error",
+        lastAuthErrorCode: details.code,
+        lastAuthErrorMessage: details.message,
+      }));
+      if (details.code === "auth/popup-closed-by-user") {
+        setMessage("Googleログインがキャンセルされました");
         return;
       }
-      setMessage("Googleログインに失敗しました。時間をおいて再度お試しください。");
+      if (details.code === "auth/credential-already-in-use") {
+        setMessage("このGoogleアカウントは、すでに別のユーザーに紐づいています");
+        return;
+      }
+      setMessage("Googleログインに失敗しました。時間をおいてもう一度お試しください");
     }
   }, [firestoreGateway]);
 
@@ -1120,6 +1147,7 @@ function CatHealthApp() {
     const initAuth = async () => {
       if (!firestoreGateway.enabled || !firestoreGateway.auth) {
         setAuthUserInfo({ status: "未認証", isGoogleLinked: false, userLabel: "" });
+        setAuthBootstrapCompleted(true);
         return;
       }
       try {
@@ -1128,11 +1156,13 @@ function CatHealthApp() {
           const unsub = firestoreGateway.auth.onAuthStateChanged(async (user) => {
             try {
               if (!user) {
+                setFirebaseDebug((prev) => ({ ...prev, lastAuthAction: "signInAnonymously" }));
                 const result = await firestoreGateway.auth.signInAnonymously();
                 const anonUid = result?.user?.uid || "";
                 setAuthOwnerUid(anonUid);
                 setAuthUserInfo({ status: "匿名ログイン中", isGoogleLinked: false, userLabel: "" });
-                setFirebaseDebug((prev) => ({ ...prev, authStatus: "匿名ログイン中" }));
+                setFirebaseDebug((prev) => ({ ...prev, authStatus: "匿名ログイン中", lastAuthResult: "success", lastAuthErrorCode: "", lastAuthErrorMessage: "" }));
+                setAuthBootstrapCompleted(true);
                 resolve();
                 return;
               }
@@ -1145,7 +1175,8 @@ function CatHealthApp() {
                 isGoogleLinked,
                 userLabel,
               });
-              setFirebaseDebug((prev) => ({ ...prev, authStatus: isGoogleLinked ? "Googleログイン済み" : "匿名ログイン中" }));
+              setFirebaseDebug((prev) => ({ ...prev, authStatus: isGoogleLinked ? "Googleログイン済み" : "匿名ログイン中", lastAuthResult: "restored", lastAuthErrorCode: "", lastAuthErrorMessage: "" }));
+              setAuthBootstrapCompleted(true);
               resolve();
             } finally {
               unsub();
@@ -1162,6 +1193,7 @@ function CatHealthApp() {
           lastErrorCode: details.code,
           lastErrorMessage: details.message,
         }));
+        setAuthBootstrapCompleted(true);
       }
     };
     initAuth();
@@ -1489,6 +1521,24 @@ function CatHealthApp() {
         {message && (
           <div style={{ ...cardStyle, background: "#FFF7E8", fontSize: 12, padding: "10px 14px" }}>
             {message}
+          </div>
+        )}
+        {AUTH_DEBUG_ENABLED && (
+          <div style={{ ...cardStyle, background: "#F4F7FF", fontSize: 11, whiteSpace: "pre-wrap" }}>
+            {[
+              `authDomain: ${firestoreGateway.auth?.app?.options?.authDomain || ""}`,
+              `projectId: ${firestoreGateway.auth?.app?.options?.projectId || ""}`,
+              `authUid: ${authOwnerUid || ""}`,
+              `isAnonymous: ${String(Boolean(firestoreGateway.auth?.currentUser?.isAnonymous))}`,
+              `providerIds: ${(firestoreGateway.auth?.currentUser?.providerData || []).map((p) => p?.providerId).filter(Boolean).join(",")}`,
+              `email: ${firestoreGateway.auth?.currentUser?.email || ""}`,
+              `lastAuthAction: ${firebaseDebug.lastAuthAction || ""}`,
+              `lastAuthResult: ${firebaseDebug.lastAuthResult || ""}`,
+              `lastAuthErrorCode: ${firebaseDebug.lastAuthErrorCode || ""}`,
+              `lastAuthErrorMessage: ${firebaseDebug.lastAuthErrorMessage || ""}`,
+              `usingPopupAuth: true`,
+              `redirectMethodsPresent: false`,
+            ].join("\n")}
           </div>
         )}
         {tab === "home" && (
