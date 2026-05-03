@@ -142,19 +142,23 @@
         <ul>
           <li><code>cats</code> / <code>records</code> は本人用データとして保存されます。</li>
           <li><code>publicCats</code> は公開プロフィール用として分離して保存されます。</li>
+          <li>共有をONにした当日の一部記録は、公開用データとして <code>publicFoodRecords</code> に分離して保存されます。</li>
           <li>端末のローカル保存とFirebase（Firestore / 匿名認証）を利用します。</li>
         </ul>
 
         <h2>公開される情報</h2>
         <ul>
-          <li>「みんな」画面に表示されるのは <code>publicCats</code> の公開プロフィール情報のみです。</li>
+          <li>「みんな」画面には、<code>publicCats</code> の公開プロフィール情報が表示されます。</li>
+          <li>共有をONにした場合のみ、<code>publicFoodRecords</code> に保存された当日の一部日次記録（ごはん量、水分量、おやつ、うんち回数、おしっこ回数など）が表示されることがあります。</li>
+          <li>共有をOFFにした場合、当日の日次記録は「みんな」画面に表示されません。</li>
           <li>公開設定に応じた猫名・都道府県・市区町村・年齢・性別・毛色などが表示されます。</li>
         </ul>
 
         <h2>公開されない情報</h2>
         <ul>
-          <li><code>records</code>、メモ、写真データは「みんな」画面に公開しません。</li>
-          <li>本人用データ（<code>cats</code> / <code>records</code>）は公開プロフィールとは別に扱います。</li>
+          <li>本人用の詳細データである <code>records</code> は、そのまま「みんな」画面に公開しません。</li>
+          <li>メモ、写真、体重などの詳細な本人用記録は公開しません。</li>
+          <li>本人用データ（<code>cats</code> / <code>records</code>）と公開用データ（<code>publicCats</code> / <code>publicFoodRecords</code>）は分離して扱います。</li>
         </ul>
 
         <h2>Firebase / GitHub Pages の利用</h2>
