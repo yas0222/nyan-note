@@ -130,3 +130,19 @@ firebase deploy --only hosting
 - この手順は `auth-test.html` の切り分け専用です。
 - 本番アプリ全体を Firebase Hosting へ移行する作業はまだ実施しません。
 - Firestore データ、localStorage、猫データ、共有データには影響しません。
+
+
+## Firebase Hosting デプロイ（最小手順）
+
+以下の 3 コマンドを順に実行してください。
+
+```bash
+firebase login
+firebase use neko222-ym
+firebase deploy --only hosting
+```
+
+デプロイ後、次の URL で `auth-test.html` を確認できます。
+
+- https://neko222-ym.web.app/auth-test.html
+- https://neko222-ym.firebaseapp.com/auth-test.html
