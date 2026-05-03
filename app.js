@@ -801,6 +801,13 @@ function CatHealthApp() {
     catSaveResult: "",
     catSaveErrorCode: "",
     catSaveErrorMessage: "",
+    publicCatSavePath: "",
+    publicCatSaveWriteMethod: "",
+    publicCatSaveOwnerUid: "",
+    publicCatSavePublicId: "",
+    publicCatSaveResult: "",
+    publicCatSaveErrorCode: "",
+    publicCatSaveErrorMessage: "",
     previousAnonymousUid: "",
     catSaveLocalId: "",
     catSaveCloudId: "",
@@ -1110,6 +1117,26 @@ function CatHealthApp() {
         catSaveErrorMessage: errorMessage,
       }));
     };
+    const setPublicCatSaveDebug = ({
+      path = "",
+      writeMethod = "",
+      ownerUid = "",
+      publicId = "",
+      result = "",
+      errorCode = "",
+      errorMessage = "",
+    }) => {
+      setFirebaseDebug((prev) => ({
+        ...prev,
+        publicCatSavePath: path,
+        publicCatSaveWriteMethod: writeMethod,
+        publicCatSaveOwnerUid: ownerUid,
+        publicCatSavePublicId: publicId,
+        publicCatSaveResult: result,
+        publicCatSaveErrorCode: errorCode,
+        publicCatSaveErrorMessage: errorMessage,
+      }));
+    };
     if (!firestoreGateway.enabled || !firestoreGateway.db) {
       firestoreCatExists = "false";
       firestoreCatOwnerUid = "";
@@ -1208,22 +1235,60 @@ function CatHealthApp() {
       setCatSaveDebug({ result: "ready:before-write" });
       await catRef.set(payload, { merge: true });
       catSaveAuthPhase = "after-write";
+      let publicCatSyncFailed = false;
       if (isPublicCatEnabled(cat)) {
-        const publicPayload = toPublicCatPayload(cat, currentAuthUid);
-        await firestoreGateway.db.collection("publicCats").doc(String(cat.publicId)).set(publicPayload, { merge: true });
-        updateFirestoreSaveDebug("公開プロフィール", true, currentAuthUid);
+        const publicId = String(cat.publicId || "");
+        const publicPath = `publicCats/${publicId}`;
+        try {
+          const publicPayload = toPublicCatPayload(cat, currentAuthUid);
+          await firestoreGateway.db.collection("publicCats").doc(publicId).set(publicPayload, { merge: true });
+          updateFirestoreSaveDebug("公開プロフィール", true, currentAuthUid);
+          setPublicCatSaveDebug({ path: publicPath, writeMethod: "set(merge:true)", ownerUid: currentAuthUid, publicId, result: "success" });
+        } catch (publicError) {
+          publicCatSyncFailed = true;
+          const publicDetails = getFirebaseErrorDetails(publicError);
+          updateFirestoreSaveDebug("公開プロフィール", false, currentAuthUid, publicDetails.code, publicDetails.message);
+          setPublicCatSaveDebug({
+            path: publicPath,
+            writeMethod: "set(merge:true)",
+            ownerUid: currentAuthUid,
+            publicId,
+            result: "error",
+            errorCode: publicDetails.code,
+            errorMessage: publicDetails.message,
+          });
+        }
       } else if (cat.publicId) {
-        await firestoreGateway.db.collection("publicCats").doc(String(cat.publicId)).delete();
-        updateFirestoreSaveDebug("公開プロフィール", true, currentAuthUid);
-        setFirebaseDebug((prev) => ({ ...prev, lastPublicCatSaveResult: "公開プロフィール: 削除済み" }));
+        const publicId = String(cat.publicId);
+        const publicPath = `publicCats/${publicId}`;
+        try {
+          await firestoreGateway.db.collection("publicCats").doc(publicId).delete();
+          updateFirestoreSaveDebug("公開プロフィール", true, currentAuthUid);
+          setFirebaseDebug((prev) => ({ ...prev, lastPublicCatSaveResult: "公開プロフィール: 削除済み" }));
+          setPublicCatSaveDebug({ path: publicPath, writeMethod: "delete()", ownerUid: currentAuthUid, publicId, result: "success" });
+        } catch (publicError) {
+          publicCatSyncFailed = true;
+          const publicDetails = getFirebaseErrorDetails(publicError);
+          updateFirestoreSaveDebug("公開プロフィール", false, currentAuthUid, publicDetails.code, publicDetails.message);
+          setPublicCatSaveDebug({
+            path: publicPath,
+            writeMethod: "delete()",
+            ownerUid: currentAuthUid,
+            publicId,
+            result: "error",
+            errorCode: publicDetails.code,
+            errorMessage: publicDetails.message,
+          });
+        }
       } else {
         setFirebaseDebug((prev) => ({ ...prev, lastPublicCatSaveResult: "公開プロフィール: 未実行" }));
+        setPublicCatSaveDebug({ result: "skipped", writeMethod: "none" });
       }
       setFirebaseStatus("Firebase保存可能");
       updateFirestoreSaveDebug("猫プロフィール", true, currentAuthUid);
       setCatSaveDebug({ result: "success" });
       setPublicCatsReloadToken((prev) => prev + 1);
-      return { ok: true, ownerUid: currentAuthUid, cloudId: firestoreDocId };
+      return { ok: true, ownerUid: currentAuthUid, cloudId: firestoreDocId, publicCatSyncFailed };
     } catch (e) {
       setFirebaseStatus("Firebase保存エラー");
       console.error("[Firestore] 猫プロフィール保存エラー詳細", e);
@@ -1559,6 +1624,7 @@ function CatHealthApp() {
         ),
       );
       setMessage("猫プロフィールを保存しました");
+      if (cloudResult.publicCatSyncFailed) setFirebaseStatus("公開プロフィールの同期に失敗しました");
     } else {
       setMessage(cloudResult.reason === "owner-mismatch" ? "猫プロフィールを保存しました ✓ この端末のデータとして保持されています（クラウド更新対象外）" : "猫プロフィールを保存しました ✓ 端末には保存しましたが、クラウド保存に失敗しました");
     }
@@ -1602,6 +1668,7 @@ function CatHealthApp() {
         ),
       );
       setMessage("猫プロフィールを保存しました");
+      if (cloudResult.publicCatSyncFailed) setFirebaseStatus("公開プロフィールの同期に失敗しました");
     } else {
       setMessage(cloudResult.reason === "owner-mismatch" ? "猫プロフィールを保存しました ✓ この端末のデータとして保持されています（クラウド更新対象外）" : "猫プロフィールを保存しました ✓ 端末には保存しましたが、クラウド保存に失敗しました");
     }
@@ -1891,6 +1958,13 @@ function CatHealthApp() {
               `catSave.result: ${firebaseDebug.catSaveResult || ""}`,
               `catSave.errorCode: ${firebaseDebug.catSaveErrorCode || ""}`,
               `catSave.errorMessage: ${firebaseDebug.catSaveErrorMessage || ""}`,
+              `publicCatSave.path: ${firebaseDebug.publicCatSavePath || ""}`,
+              `publicCatSave.writeMethod: ${firebaseDebug.publicCatSaveWriteMethod || ""}`,
+              `publicCatSave.ownerUid: ${firebaseDebug.publicCatSaveOwnerUid || ""}`,
+              `publicCatSave.publicId: ${firebaseDebug.publicCatSavePublicId || ""}`,
+              `publicCatSave.result: ${firebaseDebug.publicCatSaveResult || ""}`,
+              `publicCatSave.errorCode: ${firebaseDebug.publicCatSaveErrorCode || ""}`,
+              `publicCatSave.errorMessage: ${firebaseDebug.publicCatSaveErrorMessage || ""}`,
             ].join("\n")}
           </div>
         )}
