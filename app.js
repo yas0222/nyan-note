@@ -1062,10 +1062,11 @@ function CatHealthApp() {
       saveTargetOwnerUid = currentAuthUid;
       const catRef = firestoreGateway.db.collection("cats").doc(catId);
       const existingDoc = await catRef.get();
-      firestoreCatExists = existingDoc.exists ? "true" : "false";
-      firestoreCatOwnerUid = existingDoc.exists ? (typeof existingDoc.data()?.ownerUid === "string" ? existingDoc.data().ownerUid : "") : "";
+      const docExists = Boolean(existingDoc?.exists);
+      firestoreCatExists = docExists ? "true" : "false";
+      firestoreCatOwnerUid = docExists ? (typeof existingDoc.data()?.ownerUid === "string" ? existingDoc.data().ownerUid : "") : "";
 
-      if (existingDoc.exists) {
+      if (docExists) {
         if (firestoreCatOwnerUid !== currentAuthUid) {
           catSaveMode = "localOnly";
           const message = "この猫プロフィールは端末内データとして保存されています";
@@ -1079,9 +1080,10 @@ function CatHealthApp() {
         catSaveMode = "create";
       }
       const payload = toFirestoreCatPayload(cat, currentAuthUid);
-      payloadOwnerUid = payload.ownerUid || "";
+      payload.ownerUid = currentAuthUid;
       payload.localId = catLocalId;
       payload.cloudId = catId;
+      payloadOwnerUid = payload.ownerUid || "";
       await catRef.set(payload, { merge: true });
       if (isPublicCatEnabled(cat)) {
         const publicPayload = toPublicCatPayload(cat, currentAuthUid);
@@ -1736,8 +1738,8 @@ function CatHealthApp() {
               `catSave.saveMode: ${firebaseDebug.catSaveMode || ""}`,
               `catSave.action: ${firebaseDebug.catSaveAction || ""}`,
               `catSave.result: ${firebaseDebug.catSaveResult || ""}`,
-              `saveErrorCode: ${firebaseDebug.catSaveErrorCode || ""}`,
-              `saveErrorMessage: ${firebaseDebug.catSaveErrorMessage || ""}`,
+              `catSave.errorCode: ${firebaseDebug.catSaveErrorCode || ""}`,
+              `catSave.errorMessage: ${firebaseDebug.catSaveErrorMessage || ""}`,
             ].join("\n")}
           </div>
         )}
