@@ -778,6 +778,9 @@ function CatHealthApp() {
     catSaveFirestoreCatExists: "",
     catSaveFirestoreCatOwnerUid: "",
     catSavePayloadOwnerUid: "",
+    catSaveGeneratedCloudId: "",
+    catSaveFirestoreDocId: "",
+    catSavePayloadCloudId: "",
     catSaveResult: "",
     catSaveErrorCode: "",
     catSaveErrorMessage: "",
@@ -1023,7 +1026,8 @@ function CatHealthApp() {
   const saveCatToCloud = async (cat) => {
     const catLocalId = String(cat?.localId || cat?.id || "");
     const catCloudId = typeof cat?.cloudId === "string" ? cat.cloudId : "";
-    const catId = catCloudId || catLocalId;
+    let firestoreDocId = catCloudId;
+    let generatedCloudId = "";
     const catOwnerUid = typeof cat?.ownerUid === "string" ? cat.ownerUid : "";
     const catSaveAction = catCloudId ? "update" : "create";
     let currentAuthUid = "";
@@ -1032,13 +1036,16 @@ function CatHealthApp() {
     let firestoreCatOwnerUid = "not-checked";
     let catSaveMode = "";
     let payloadOwnerUid = "";
+    let payloadCloudId = "";
     const setCatSaveDebug = ({ result = "", errorCode = "", errorMessage = "" }) => {
       setFirebaseDebug((prev) => ({
         ...prev,
         catSaveCurrentAuthUid: currentAuthUid,
-        catSaveCatId: catId,
+        catSaveCatId: firestoreDocId,
         catSaveLocalId: catLocalId,
         catSaveCloudId: catCloudId,
+        catSaveGeneratedCloudId: generatedCloudId,
+        catSaveFirestoreDocId: firestoreDocId,
         catSaveCatOwnerUid: catOwnerUid,
         catSaveTargetOwnerUid: saveTargetOwnerUid,
         catSaveAction,
@@ -1046,6 +1053,7 @@ function CatHealthApp() {
         catSaveFirestoreCatExists: firestoreCatExists,
         catSaveFirestoreCatOwnerUid: firestoreCatOwnerUid,
         catSavePayloadOwnerUid: payloadOwnerUid,
+        catSavePayloadCloudId: payloadCloudId,
         catSaveResult: result,
         catSaveErrorCode: errorCode,
         catSaveErrorMessage: errorMessage,
@@ -1072,14 +1080,14 @@ function CatHealthApp() {
         setFirebaseDebug((prev) => ({ ...prev, lastPublicCatSaveResult: "公開プロフィール: 未実行（認証UIDなし）" }));
         return { ok: false, reason: "missing-auth-uid" };
       }
-      const catRef = firestoreGateway.db.collection("cats").doc(catId);
-      const existingDoc = await catRef.get();
-      const docExists = Boolean(existingDoc?.exists);
-      firestoreCatExists = docExists ? "true" : "false";
-      firestoreCatOwnerUid = docExists ? (typeof existingDoc.data()?.ownerUid === "string" ? existingDoc.data().ownerUid : "") : "";
-
-      if (docExists) {
-        if (firestoreCatOwnerUid !== currentAuthUid) {
+      let catRef;
+      if (catCloudId) {
+        catRef = firestoreGateway.db.collection("cats").doc(catCloudId);
+        const existingDoc = await catRef.get();
+        const docExists = Boolean(existingDoc?.exists);
+        firestoreCatExists = docExists ? "true" : "false";
+        firestoreCatOwnerUid = docExists ? (typeof existingDoc.data()?.ownerUid === "string" ? existingDoc.data().ownerUid : "") : "";
+        if (docExists && firestoreCatOwnerUid !== currentAuthUid) {
           catSaveMode = "localOnly";
           const message = "この猫プロフィールは端末内データとして保存されています";
           setCatSaveDebug({ result: "blocked:owner-mismatch", errorCode: "cat/owner-mismatch", errorMessage: message });
@@ -1087,15 +1095,20 @@ function CatHealthApp() {
           setFirebaseDebug((prev) => ({ ...prev, lastPublicCatSaveResult: "公開プロフィール: 未実行（所有者不一致）" }));
           return { ok: false, reason: "owner-mismatch" };
         }
-        catSaveMode = "update";
+        catSaveMode = docExists ? "update" : "create";
       } else {
+        catRef = firestoreGateway.db.collection("cats").doc();
+        generatedCloudId = catRef.id;
+        firestoreDocId = generatedCloudId;
         catSaveMode = "create";
       }
       const payload = toFirestoreCatPayload(cat, currentAuthUid);
       payload.ownerUid = currentAuthUid;
       payload.localId = catLocalId;
-      payload.cloudId = catId;
+      payload.cloudId = firestoreDocId;
+      payload.sourceCatId = String(cat?.id || "");
       payloadOwnerUid = payload.ownerUid || "";
+      payloadCloudId = payload.cloudId || "";
       if (!payloadOwnerUid) {
         catSaveMode = "localOnly";
         const message = "ownerUid が空のためクラウド保存をスキップしました";
@@ -1120,7 +1133,7 @@ function CatHealthApp() {
       updateFirestoreSaveDebug("猫プロフィール", true, currentAuthUid);
       setCatSaveDebug({ result: "success" });
       setPublicCatsReloadToken((prev) => prev + 1);
-      return { ok: true, ownerUid: currentAuthUid, cloudId: catId };
+      return { ok: true, ownerUid: currentAuthUid, cloudId: firestoreDocId };
     } catch (e) {
       setFirebaseStatus("Firebase保存エラー");
       console.error("[Firestore] 猫プロフィール保存エラー詳細", e);
@@ -1448,9 +1461,13 @@ function CatHealthApp() {
     });
     const cloudResult = createdCat ? await saveCatToCloud(createdCat) : { ok: false };
     if (cloudResult.ok) {
-      if (cloudResult.ownerUid) {
-        updateCats((cats) => cats.map((item) => (item.id === createdCat.id ? { ...item, ownerUid: cloudResult.ownerUid } : item)));
-      }
+      updateCats((cats) =>
+        cats.map((item) =>
+          item.id === createdCat.id
+            ? { ...item, ownerUid: cloudResult.ownerUid || item.ownerUid || "", cloudId: cloudResult.cloudId || item.cloudId || "" }
+            : item,
+        ),
+      );
       setMessage("猫プロフィールを保存しました");
     } else {
       setMessage(cloudResult.reason === "owner-mismatch" ? "猫プロフィールを保存しました ✓ この端末のデータとして保持されています（クラウド更新対象外）" : "猫プロフィールを保存しました ✓ 端末には保存しましたが、クラウド保存に失敗しました");
@@ -1487,9 +1504,13 @@ function CatHealthApp() {
     updateCats((cats) => cats.map((cat) => (cat.id === catId ? updated : cat)));
     const cloudResult = await saveCatToCloud(updated);
     if (cloudResult.ok) {
-      if (cloudResult.ownerUid) {
-        updateCats((cats) => cats.map((item) => (item.id === catId ? { ...item, ownerUid: cloudResult.ownerUid } : item)));
-      }
+      updateCats((cats) =>
+        cats.map((item) =>
+          item.id === catId
+            ? { ...item, ownerUid: cloudResult.ownerUid || item.ownerUid || "", cloudId: cloudResult.cloudId || item.cloudId || "" }
+            : item,
+        ),
+      );
       setMessage("猫プロフィールを保存しました");
     } else {
       setMessage(cloudResult.reason === "owner-mismatch" ? "猫プロフィールを保存しました ✓ この端末のデータとして保持されています（クラウド更新対象外）" : "猫プロフィールを保存しました ✓ 端末には保存しましたが、クラウド保存に失敗しました");
@@ -1749,12 +1770,15 @@ function CatHealthApp() {
               `previousAnonymousUid: ${firebaseDebug.previousAnonymousUid || ""}`,
               `cat.localId: ${firebaseDebug.catSaveLocalId || ""}`,
               `cat.cloudId: ${firebaseDebug.catSaveCloudId || ""}`,
+              `catSave.generatedCloudId: ${firebaseDebug.catSaveGeneratedCloudId || ""}`,
+              `catSave.firestoreDocId: ${firebaseDebug.catSaveFirestoreDocId || ""}`,
               `catSave.catId: ${firebaseDebug.catSaveCatId || ""}`,
               `cat.ownerUid: ${firebaseDebug.catSaveCatOwnerUid || ""}`,
               `catSave.saveTargetOwnerUid: ${firebaseDebug.catSaveTargetOwnerUid || ""}`,
               `catSave.firestoreCatExists: ${firebaseDebug.catSaveFirestoreCatExists || ""}`,
               `catSave.firestoreCatOwnerUid: ${firebaseDebug.catSaveFirestoreCatOwnerUid || ""}`,
               `catSave.payloadOwnerUid: ${firebaseDebug.catSavePayloadOwnerUid || ""}`,
+              `catSave.payloadCloudId: ${firebaseDebug.catSavePayloadCloudId || ""}`,
               `catSave.saveMode: ${firebaseDebug.catSaveMode || ""}`,
               `catSave.action: ${firebaseDebug.catSaveAction || ""}`,
               `catSave.result: ${firebaseDebug.catSaveResult || ""}`,
