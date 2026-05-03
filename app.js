@@ -781,6 +781,14 @@ function CatHealthApp() {
     catSaveGeneratedCloudId: "",
     catSaveFirestoreDocId: "",
     catSavePayloadCloudId: "",
+    catSavePayloadKeys: "",
+    catSavePayloadName: "",
+    catSavePayloadLocalId: "",
+    catSavePayloadCreatedAt: "",
+    catSavePayloadUpdatedAt: "",
+    catSavePayloadVisibility: "",
+    catSavePayloadProfileVisibility: "",
+    catSavePayloadNameVisibility: "",
     catSaveResult: "",
     catSaveErrorCode: "",
     catSaveErrorMessage: "",
@@ -1037,6 +1045,14 @@ function CatHealthApp() {
     let catSaveMode = "";
     let payloadOwnerUid = "";
     let payloadCloudId = "";
+    let payloadKeys = "";
+    let payloadName = "";
+    let payloadLocalId = "";
+    let payloadCreatedAt = "";
+    let payloadUpdatedAt = "";
+    let payloadVisibility = "";
+    let payloadProfileVisibility = "";
+    let payloadNameVisibility = "";
     const setCatSaveDebug = ({ result = "", errorCode = "", errorMessage = "" }) => {
       setFirebaseDebug((prev) => ({
         ...prev,
@@ -1054,6 +1070,14 @@ function CatHealthApp() {
         catSaveFirestoreCatOwnerUid: firestoreCatOwnerUid,
         catSavePayloadOwnerUid: payloadOwnerUid,
         catSavePayloadCloudId: payloadCloudId,
+        catSavePayloadKeys: payloadKeys,
+        catSavePayloadName: payloadName,
+        catSavePayloadLocalId: payloadLocalId,
+        catSavePayloadCreatedAt: payloadCreatedAt,
+        catSavePayloadUpdatedAt: payloadUpdatedAt,
+        catSavePayloadVisibility: payloadVisibility,
+        catSavePayloadProfileVisibility: payloadProfileVisibility,
+        catSavePayloadNameVisibility: payloadNameVisibility,
         catSaveResult: result,
         catSaveErrorCode: errorCode,
         catSaveErrorMessage: errorMessage,
@@ -1104,11 +1128,19 @@ function CatHealthApp() {
       }
       const payload = toFirestoreCatPayload(cat, currentAuthUid);
       payload.ownerUid = currentAuthUid;
-      payload.localId = catLocalId;
-      payload.cloudId = firestoreDocId;
+      // Firestore Rules の strict validation（keys whitelist / immutable fields）を想定し、
+      // ドキュメント外メタ情報は payload へ入れずデバッグ表示のみに残す。
       payload.sourceCatId = String(cat?.id || "");
       payloadOwnerUid = payload.ownerUid || "";
-      payloadCloudId = payload.cloudId || "";
+      payloadCloudId = firestoreDocId;
+      payloadKeys = Object.keys(payload).sort().join(",");
+      payloadName = typeof payload.name === "string" ? payload.name : "";
+      payloadLocalId = catLocalId;
+      payloadCreatedAt = typeof payload.createdAt === "string" ? payload.createdAt : "";
+      payloadUpdatedAt = typeof payload.updatedAt === "string" ? payload.updatedAt : "";
+      payloadVisibility = typeof payload.visibility === "string" ? payload.visibility : "";
+      payloadProfileVisibility = typeof payload.profileVisibility === "string" ? payload.profileVisibility : "";
+      payloadNameVisibility = typeof payload.nameVisibility === "string" ? payload.nameVisibility : "";
       if (!payloadOwnerUid) {
         catSaveMode = "localOnly";
         const message = "ownerUid が空のためクラウド保存をスキップしました";
@@ -1779,6 +1811,14 @@ function CatHealthApp() {
               `catSave.firestoreCatOwnerUid: ${firebaseDebug.catSaveFirestoreCatOwnerUid || ""}`,
               `catSave.payloadOwnerUid: ${firebaseDebug.catSavePayloadOwnerUid || ""}`,
               `catSave.payloadCloudId: ${firebaseDebug.catSavePayloadCloudId || ""}`,
+              `catSave.payloadKeys: ${firebaseDebug.catSavePayloadKeys || ""}`,
+              `catSave.payload.name: ${firebaseDebug.catSavePayloadName || ""}`,
+              `catSave.payload.localId: ${firebaseDebug.catSavePayloadLocalId || ""}`,
+              `catSave.payload.createdAt: ${firebaseDebug.catSavePayloadCreatedAt || ""}`,
+              `catSave.payload.updatedAt: ${firebaseDebug.catSavePayloadUpdatedAt || ""}`,
+              `catSave.payload.visibility: ${firebaseDebug.catSavePayloadVisibility || ""}`,
+              `catSave.payload.profileVisibility: ${firebaseDebug.catSavePayloadProfileVisibility || ""}`,
+              `catSave.payload.nameVisibility: ${firebaseDebug.catSavePayloadNameVisibility || ""}`,
               `catSave.saveMode: ${firebaseDebug.catSaveMode || ""}`,
               `catSave.action: ${firebaseDebug.catSaveAction || ""}`,
               `catSave.result: ${firebaseDebug.catSaveResult || ""}`,
