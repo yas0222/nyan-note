@@ -155,11 +155,7 @@ function createFirestoreGateway() {
     if (!firebaseSdk) {
       throw new Error("Firebase SDKが読み込まれていません");
     }
-    const appName = firebaseConfig.projectId || "[DEFAULT]";
-    const app =
-      firebaseSdk.apps && firebaseSdk.apps.some((existingApp) => existingApp && existingApp.name === appName)
-        ? firebaseSdk.app(appName)
-        : firebaseSdk.initializeApp(firebaseConfig, appName);
+    const app = firebaseSdk.apps && firebaseSdk.apps.length ? firebaseSdk.app() : firebaseSdk.initializeApp(firebaseConfig);
     const db = app.firestore();
     const auth = typeof firebaseSdk.auth === "function" ? firebaseSdk.auth(app) : null;
     return {
@@ -889,11 +885,26 @@ function CatHealthApp() {
       popupResultUserUid: "",
       popupResultProviderIds: "",
       popupResultEmail: "",
+      popupProviderId: "",
+      popupProviderScopes: "",
+      popupExpectedHandlerUrl: "",
+      popupAuthDomain: "",
+      popupErrorCustomData: "",
+      popupErrorCredentialProviderId: "",
       lastAuthErrorCode: "",
       lastAuthErrorMessage: "",
     }));
     try {
       const provider = new window.firebase.auth.GoogleAuthProvider();
+      const popupAuthDomain = firestoreGateway.auth?.app?.options?.authDomain || "";
+      const popupExpectedHandlerUrl = popupAuthDomain ? `https://${popupAuthDomain}/__/auth/handler` : "";
+      setFirebaseDebug((prev) => ({
+        ...prev,
+        popupProviderId: provider.providerId || "",
+        popupProviderScopes: (typeof provider.getScopes === "function" ? provider.getScopes() : []).join(","),
+        popupAuthDomain,
+        popupExpectedHandlerUrl,
+      }));
       const currentUser = firestoreGateway.auth.currentUser;
       const providerIds = Array.isArray(currentUser?.providerData)
         ? currentUser.providerData.map((p) => p?.providerId).filter(Boolean)
@@ -942,6 +953,8 @@ function CatHealthApp() {
     } catch (e) {
       const details = getFirebaseErrorDetails(e);
       const popupFinishedAt = new Date().toISOString();
+      const errorCustomData = e && typeof e === "object" && e.customData ? JSON.stringify(e.customData) : "";
+      const errorCredentialProviderId = e && typeof e === "object" && e.credential?.providerId ? e.credential.providerId : "";
       setFirebaseDebug((prev) => ({
         ...prev,
         popupFlowStep: `${authAction}:catch`,
@@ -950,6 +963,8 @@ function CatHealthApp() {
         popupCaughtError: "true",
         popupErrorCode: details.code,
         popupErrorMessage: details.message,
+        popupErrorCustomData: errorCustomData,
+        popupErrorCredentialProviderId: errorCredentialProviderId,
         lastAuthResult: "error",
         lastAuthErrorCode: details.code || "auth/unknown",
         lastAuthErrorMessage: details.message || "不明な認証エラー",
@@ -1633,6 +1648,12 @@ function CatHealthApp() {
               `popupResultUserUid: ${firebaseDebug.popupResultUserUid || ""}`,
               `popupResultProviderIds: ${firebaseDebug.popupResultProviderIds || ""}`,
               `popupResultEmail: ${firebaseDebug.popupResultEmail || ""}`,
+              `popupProviderId: ${firebaseDebug.popupProviderId || ""}`,
+              `popupProviderScopes: ${firebaseDebug.popupProviderScopes || ""}`,
+              `popupAuthDomain: ${firebaseDebug.popupAuthDomain || ""}`,
+              `popupExpectedHandlerUrl: ${firebaseDebug.popupExpectedHandlerUrl || ""}`,
+              `popupErrorCustomData: ${firebaseDebug.popupErrorCustomData || ""}`,
+              `popupErrorCredentialProviderId: ${firebaseDebug.popupErrorCredentialProviderId || ""}`,
             ].join("\n")}
           </div>
         )}
