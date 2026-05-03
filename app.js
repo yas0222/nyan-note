@@ -470,7 +470,18 @@ function toLocalDateKey(date = new Date()) {
 }
 
 function todayKey() {
-  return toLocalDateKey(new Date());
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat("ja-JP", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = formatter.formatToParts(now);
+  const year = parts.find((part) => part.type === "year")?.value || String(now.getFullYear());
+  const month = parts.find((part) => part.type === "month")?.value || String(now.getMonth() + 1).padStart(2, "0");
+  const day = parts.find((part) => part.type === "day")?.value || String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function daysAgoKey(days) {
@@ -821,6 +832,26 @@ function CatHealthApp() {
     publicRecordSaveResult: "",
     publicRecordSaveErrorCode: "",
     publicRecordSaveErrorMessage: "",
+    publicRecordLoadCollectionPath: "",
+    publicRecordLoadQueryRecordDate: "",
+    publicRecordLoadQueryTodayKey: "",
+    publicRecordLoadResult: "",
+    publicRecordLoadCount: "",
+    publicRecordLoadErrorCode: "",
+    publicRecordLoadErrorMessage: "",
+    publicRecordLoadFirstDocId: "",
+    publicRecordLoadFirstRecordDate: "",
+    publicRecordLoadFirstPublicId: "",
+    publicRecordLoadFirstSourceCatId: "",
+    publicRecordLoadFirstCatId: "",
+    publicJoinMethod: "",
+    publicJoinPublicCatsCount: "",
+    publicJoinPublicRecordsCount: "",
+    publicJoinMatchedCount: "",
+    publicJoinFirstCatPublicId: "",
+    publicJoinFirstRecordPublicId: "",
+    publicJoinFirstCatSourceCatId: "",
+    publicJoinFirstRecordSourceCatId: "",
     previousAnonymousUid: "",
     catSaveLocalId: "",
     catSaveCloudId: "",
@@ -900,6 +931,9 @@ function CatHealthApp() {
       lastErrorCode: errorCode,
       lastErrorMessage: errorMessage,
     }));
+  }, []);
+  const updatePublicCommunityDebug = useCallback((patch) => {
+    setFirebaseDebug((prev) => ({ ...prev, ...patch }));
   }, []);
 
   const ensureAuthenticatedUid = useCallback(async () => {
@@ -2027,6 +2061,26 @@ function CatHealthApp() {
               `publicRecordSave.result: ${firebaseDebug.publicRecordSaveResult || ""}`,
               `publicRecordSave.errorCode: ${firebaseDebug.publicRecordSaveErrorCode || ""}`,
               `publicRecordSave.errorMessage: ${firebaseDebug.publicRecordSaveErrorMessage || ""}`,
+              `publicRecordLoad.collectionPath: ${firebaseDebug.publicRecordLoadCollectionPath || ""}`,
+              `publicRecordLoad.queryRecordDate: ${firebaseDebug.publicRecordLoadQueryRecordDate || ""}`,
+              `publicRecordLoad.queryTodayKey: ${firebaseDebug.publicRecordLoadQueryTodayKey || ""}`,
+              `publicRecordLoad.result: ${firebaseDebug.publicRecordLoadResult || ""}`,
+              `publicRecordLoad.count: ${firebaseDebug.publicRecordLoadCount || ""}`,
+              `publicRecordLoad.errorCode: ${firebaseDebug.publicRecordLoadErrorCode || ""}`,
+              `publicRecordLoad.errorMessage: ${firebaseDebug.publicRecordLoadErrorMessage || ""}`,
+              `publicRecordLoad.firstDocId: ${firebaseDebug.publicRecordLoadFirstDocId || ""}`,
+              `publicRecordLoad.firstRecordDate: ${firebaseDebug.publicRecordLoadFirstRecordDate || ""}`,
+              `publicRecordLoad.firstPublicId: ${firebaseDebug.publicRecordLoadFirstPublicId || ""}`,
+              `publicRecordLoad.firstSourceCatId: ${firebaseDebug.publicRecordLoadFirstSourceCatId || ""}`,
+              `publicRecordLoad.firstCatId: ${firebaseDebug.publicRecordLoadFirstCatId || ""}`,
+              `publicJoin.method: ${firebaseDebug.publicJoinMethod || ""}`,
+              `publicJoin.publicCatsCount: ${firebaseDebug.publicJoinPublicCatsCount || ""}`,
+              `publicJoin.publicRecordsCount: ${firebaseDebug.publicJoinPublicRecordsCount || ""}`,
+              `publicJoin.matchedCount: ${firebaseDebug.publicJoinMatchedCount || ""}`,
+              `publicJoin.firstCatPublicId: ${firebaseDebug.publicJoinFirstCatPublicId || ""}`,
+              `publicJoin.firstRecordPublicId: ${firebaseDebug.publicJoinFirstRecordPublicId || ""}`,
+              `publicJoin.firstCatSourceCatId: ${firebaseDebug.publicJoinFirstCatSourceCatId || ""}`,
+              `publicJoin.firstRecordSourceCatId: ${firebaseDebug.publicJoinFirstRecordSourceCatId || ""}`,
             ].join("\n")}
           </div>
         )}
@@ -2070,6 +2124,8 @@ function CatHealthApp() {
             authOwnerUid={authOwnerUid}
             authStatus={firebaseDebug.authStatus}
             onUpdatePublicCatsLoadDebug={updatePublicCatsLoadDebug}
+            onUpdatePublicCommunityDebug={updatePublicCommunityDebug}
+            reloadToken={publicCatsReloadToken}
           />
         )}
         {tab === "stats" && (
@@ -3111,7 +3167,7 @@ function LogView({ cat, logs, saveLog, deleteLog, cats, setSelectedCat, onMoveHo
   );
 }
 
-function CommunityView({ firestoreGateway, authOwnerUid, authStatus, onUpdatePublicCatsLoadDebug, reloadToken }) {
+function CommunityView({ firestoreGateway, authOwnerUid, authStatus, onUpdatePublicCatsLoadDebug, onUpdatePublicCommunityDebug, reloadToken }) {
   const [publicCats, setPublicCats] = useState([]);
   const [loadState, setLoadState] = useState("idle");
   const [isLoading, setIsLoading] = useState(false);
@@ -3168,21 +3224,59 @@ function CommunityView({ firestoreGateway, authOwnerUid, authStatus, onUpdatePub
             publicRegionLevel,
             publicRegionLabel: typeof data.publicRegionLabel === "string" ? data.publicRegionLabel : "地域非公開",
             ownerUid: typeof data.ownerUid === "string" ? data.ownerUid : "",
+            publicId: typeof data.publicId === "string" ? data.publicId : "",
+            cloudId: typeof data.cloudId === "string" ? data.cloudId : "",
             sourceCatId: typeof data.sourceCatId === "string" ? data.sourceCatId : "",
           };
         });
-        const foodSnap = await firestoreGateway.db.collection("publicFoodRecords").orderBy("updatedAt", "desc").limit(500).get();
         const todayDateKey = todayKey();
-        const foodMap = {};
-        foodSnap.docs.forEach((doc) => {
-          const row = doc.data() || {};
-          if (String(row.recordDate || "") !== todayDateKey) return;
-          const key = `${row.ownerUid || ""}__${row.sourceCatId || ""}`;
-          if (!key || key === "__") return;
-          const prev = foodMap[key];
-          if (!prev) foodMap[key] = row;
+        const foodQuery = firestoreGateway.db
+          .collection("publicFoodRecords")
+          .where("recordDate", "==", todayDateKey)
+          .orderBy("updatedAt", "desc")
+          .limit(500);
+        const foodSnap = await foodQuery.get();
+        const foodRows = foodSnap.docs.map((doc) => ({ id: doc.id, ...(doc.data() || {}) }));
+        const firstFood = foodRows[0] || {};
+        onUpdatePublicCommunityDebug({
+          publicRecordLoadCollectionPath: "publicFoodRecords",
+          publicRecordLoadQueryRecordDate: todayDateKey,
+          publicRecordLoadQueryTodayKey: todayDateKey,
+          publicRecordLoadResult: "success",
+          publicRecordLoadCount: String(foodRows.length),
+          publicRecordLoadErrorCode: "",
+          publicRecordLoadErrorMessage: "",
+          publicRecordLoadFirstDocId: firstFood.id || "",
+          publicRecordLoadFirstRecordDate: String(firstFood.recordDate || ""),
+          publicRecordLoadFirstPublicId: String(firstFood.publicId || ""),
+          publicRecordLoadFirstSourceCatId: String(firstFood.sourceCatId || ""),
+          publicRecordLoadFirstCatId: String(firstFood.catId || ""),
         });
-        const itemsWithFood = items.map((cat) => ({ ...cat, publicFood: foodMap[`${cat.ownerUid}__${cat.sourceCatId}`] || null }));
+        const keyOf = (row, key) => String(row?.[key] || "").trim();
+        const pickJoinKey = (row) => keyOf(row, "publicId") || keyOf(row, "cloudId") || keyOf(row, "sourceCatId");
+        const foodMap = {};
+        foodRows.forEach((row) => {
+          const key = pickJoinKey(row);
+          if (!key || foodMap[key]) return;
+          foodMap[key] = row;
+        });
+        let matchedCount = 0;
+        const itemsWithFood = items.map((cat) => {
+          const joinKey = pickJoinKey(cat);
+          const publicFood = joinKey ? foodMap[joinKey] || null : null;
+          if (publicFood) matchedCount += 1;
+          return { ...cat, publicFood };
+        });
+        onUpdatePublicCommunityDebug({
+          publicJoinMethod: "publicId>cloudId>sourceCatId",
+          publicJoinPublicCatsCount: String(items.length),
+          publicJoinPublicRecordsCount: String(foodRows.length),
+          publicJoinMatchedCount: String(matchedCount),
+          publicJoinFirstCatPublicId: String(items[0]?.publicId || ""),
+          publicJoinFirstRecordPublicId: String(firstFood.publicId || ""),
+          publicJoinFirstCatSourceCatId: String(items[0]?.sourceCatId || ""),
+          publicJoinFirstRecordSourceCatId: String(firstFood.sourceCatId || ""),
+        });
         if (cancelled) return;
         setPublicCats(itemsWithFood);
         const filteredItems =
@@ -3203,6 +3297,15 @@ function CommunityView({ firestoreGateway, authOwnerUid, authStatus, onUpdatePub
         setPublicCats([]);
         setLoadState("error");
         onUpdatePublicCatsLoadDebug("読み込み失敗", details.code, details.message, conditionText);
+        onUpdatePublicCommunityDebug({
+          publicRecordLoadCollectionPath: "publicFoodRecords",
+          publicRecordLoadQueryRecordDate: todayKey(),
+          publicRecordLoadQueryTodayKey: todayKey(),
+          publicRecordLoadResult: "failed",
+          publicRecordLoadCount: "0",
+          publicRecordLoadErrorCode: details.code,
+          publicRecordLoadErrorMessage: details.message,
+        });
       } finally {
         if (cancelled) return;
         setIsLoading(false);
@@ -3213,7 +3316,7 @@ function CommunityView({ firestoreGateway, authOwnerUid, authStatus, onUpdatePub
     return () => {
       cancelled = true;
     };
-  }, [authOwnerUid, authStatus, firestoreGateway, onUpdatePublicCatsLoadDebug, selectedPrefecture, reloadToken]);
+  }, [authOwnerUid, authStatus, firestoreGateway, onUpdatePublicCatsLoadDebug, onUpdatePublicCommunityDebug, selectedPrefecture, reloadToken]);
 
   return (
     <div>
