@@ -661,6 +661,8 @@ function normalizeCats(cats) {
       typeof cat.city === "string" ? cat.city : inferCityFromRegion(typeof cat.region === "string" ? cat.region : "", prefecture);
     return {
       ...cat,
+      localId: typeof cat.localId === "string" && cat.localId ? cat.localId : String(cat.id || ""),
+      cloudId: typeof cat.cloudId === "string" ? cat.cloudId : "",
       prefecture,
       city,
       region: buildRegionText(prefecture, city, typeof cat.region === "string" ? cat.region : ""),
@@ -779,7 +781,10 @@ function CatHealthApp() {
     catSaveResult: "",
     catSaveErrorCode: "",
     catSaveErrorMessage: "",
-  }));
+    previousAnonymousUid: "",
+    catSaveLocalId: "",
+    catSaveCloudId: "",
+    }));
   const ownerResolution = useMemo(() => {
     const authUidFromCurrentUser = firestoreGateway.auth?.currentUser?.uid || "";
     const authUid = authUidFromCurrentUser || authOwnerUid || "";
@@ -809,6 +814,7 @@ function CatHealthApp() {
   const [selectedCatId, setSelectedCatId] = useState(() => data.cats[0]?.id ?? null);
   const [message, setMessage] = useState("");
   const [isGoogleLoginInProgress, setIsGoogleLoginInProgress] = useState(false);
+  const [pendingMigrationNotice, setPendingMigrationNotice] = useState("");
 
   useEffect(() => {
     if (initialLoadRef.current?.loadError) {
@@ -908,6 +914,8 @@ function CatHealthApp() {
     }));
     try {
       const provider = new window.firebase.auth.GoogleAuthProvider();
+      const currentUser = firestoreGateway.auth.currentUser;
+      const previousAnonymousUid = currentUser?.isAnonymous ? currentUser.uid || "" : "";
       const popupAuthDomain = firestoreGateway.auth?.app?.options?.authDomain || "";
       const popupExpectedHandlerUrl = popupAuthDomain ? `https://${popupAuthDomain}/__/auth/handler` : "";
       setFirebaseDebug((prev) => ({
@@ -916,8 +924,8 @@ function CatHealthApp() {
         popupProviderScopes: (typeof provider.getScopes === "function" ? provider.getScopes() : []).join(","),
         popupAuthDomain,
         popupExpectedHandlerUrl,
+        previousAnonymousUid,
       }));
-      const currentUser = firestoreGateway.auth.currentUser;
       const providerIds = Array.isArray(currentUser?.providerData)
         ? currentUser.providerData.map((p) => p?.providerId).filter(Boolean)
         : [];
@@ -994,7 +1002,8 @@ function CatHealthApp() {
         return;
       }
       if (details.code === "auth/credential-already-in-use") {
-        setMessage("このGoogleアカウントは、すでに別のユーザーに紐づいています");
+        setMessage("このGoogleアカウントは既に別UIDで利用中です。既存Googleユーザーとして継続するか、この端末データはローカルのまま利用してください。");
+        setPendingMigrationNotice("移行未実施: 既存Googleアカウントと匿名UIDの自動統合は行っていません。");
         return;
       }
       setMessage("Googleログインに失敗しました。時間をおいてもう一度お試しください");
@@ -1012,9 +1021,11 @@ function CatHealthApp() {
   const [publicCatsReloadToken, setPublicCatsReloadToken] = useState(0);
 
   const saveCatToCloud = async (cat) => {
-    const catId = String(cat?.id || "");
+    const catLocalId = String(cat?.localId || cat?.id || "");
+    const catCloudId = typeof cat?.cloudId === "string" ? cat.cloudId : "";
+    const catId = catCloudId || catLocalId;
     const catOwnerUid = typeof cat?.ownerUid === "string" ? cat.ownerUid : "";
-    const catSaveAction = catOwnerUid ? "update" : "create";
+    const catSaveAction = catCloudId ? "update" : "create";
     let currentAuthUid = "";
     let saveTargetOwnerUid = catOwnerUid;
     let firestoreCatExists = "not-checked";
@@ -1026,6 +1037,8 @@ function CatHealthApp() {
         ...prev,
         catSaveCurrentAuthUid: currentAuthUid,
         catSaveCatId: catId,
+        catSaveLocalId: catLocalId,
+        catSaveCloudId: catCloudId,
         catSaveCatOwnerUid: catOwnerUid,
         catSaveTargetOwnerUid: saveTargetOwnerUid,
         catSaveAction,
@@ -1067,6 +1080,8 @@ function CatHealthApp() {
       }
       const payload = toFirestoreCatPayload(cat, currentAuthUid);
       payloadOwnerUid = payload.ownerUid || "";
+      payload.localId = catLocalId;
+      payload.cloudId = catId;
       await catRef.set(payload, { merge: true });
       if (isPublicCatEnabled(cat)) {
         const publicPayload = toPublicCatPayload(cat, currentAuthUid);
@@ -1083,7 +1098,7 @@ function CatHealthApp() {
       updateFirestoreSaveDebug("猫プロフィール", true, currentAuthUid);
       setCatSaveDebug({ result: "success" });
       setPublicCatsReloadToken((prev) => prev + 1);
-      return { ok: true, ownerUid: currentAuthUid };
+      return { ok: true, ownerUid: currentAuthUid, cloudId: catId };
     } catch (e) {
       setFirebaseStatus("Firebase保存エラー");
       console.error("[Firestore] 猫プロフィール保存エラー詳細", e);
@@ -1709,8 +1724,11 @@ function CatHealthApp() {
               `popupErrorCustomData: ${firebaseDebug.popupErrorCustomData || ""}`,
               `popupErrorCredentialProviderId: ${firebaseDebug.popupErrorCredentialProviderId || ""}`,
               `catSave.currentAuthUid: ${firebaseDebug.catSaveCurrentAuthUid || ""}`,
+              `previousAnonymousUid: ${firebaseDebug.previousAnonymousUid || ""}`,
+              `cat.localId: ${firebaseDebug.catSaveLocalId || ""}`,
+              `cat.cloudId: ${firebaseDebug.catSaveCloudId || ""}`,
               `catSave.catId: ${firebaseDebug.catSaveCatId || ""}`,
-              `catSave.cat.ownerUid: ${firebaseDebug.catSaveCatOwnerUid || ""}`,
+              `cat.ownerUid: ${firebaseDebug.catSaveCatOwnerUid || ""}`,
               `catSave.saveTargetOwnerUid: ${firebaseDebug.catSaveTargetOwnerUid || ""}`,
               `catSave.firestoreCatExists: ${firebaseDebug.catSaveFirestoreCatExists || ""}`,
               `catSave.firestoreCatOwnerUid: ${firebaseDebug.catSaveFirestoreCatOwnerUid || ""}`,
@@ -1718,8 +1736,8 @@ function CatHealthApp() {
               `catSave.saveMode: ${firebaseDebug.catSaveMode || ""}`,
               `catSave.action: ${firebaseDebug.catSaveAction || ""}`,
               `catSave.result: ${firebaseDebug.catSaveResult || ""}`,
-              `catSave.errorCode: ${firebaseDebug.catSaveErrorCode || ""}`,
-              `catSave.errorMessage: ${firebaseDebug.catSaveErrorMessage || ""}`,
+              `saveErrorCode: ${firebaseDebug.catSaveErrorCode || ""}`,
+              `saveErrorMessage: ${firebaseDebug.catSaveErrorMessage || ""}`,
             ].join("\n")}
           </div>
         )}
