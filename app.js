@@ -348,7 +348,10 @@ function toPublicFoodRecordPayload({ record, cat, ownerUid, publicFoodRecordId }
   const now = new Date().toISOString();
   return omitUndefinedFields({
     ownerUid,
+    publicId: String(cat.publicId || ""),
     sourceCatId: String(cat.id),
+    catId: String(cat.id),
+    cloudId: String(cat.cloudId || ""),
     publicFoodRecordId,
     recordDate: record.date,
     foodAmount: Number(record.foodTotal),
@@ -808,6 +811,16 @@ function CatHealthApp() {
     publicCatSaveResult: "",
     publicCatSaveErrorCode: "",
     publicCatSaveErrorMessage: "",
+    publicRecordSavePath: "",
+    publicRecordSaveWriteMethod: "",
+    publicRecordSaveOwnerUid: "",
+    publicRecordSaveCatId: "",
+    publicRecordSaveSourceCatId: "",
+    publicRecordSaveRecordDate: "",
+    publicRecordSavePayloadKeys: "",
+    publicRecordSaveResult: "",
+    publicRecordSaveErrorCode: "",
+    publicRecordSaveErrorMessage: "",
     previousAnonymousUid: "",
     catSaveLocalId: "",
     catSaveCloudId: "",
@@ -1413,21 +1426,59 @@ function CatHealthApp() {
     if (!firestoreGateway.enabled || !firestoreGateway.db) return { ok: false };
     const cat = data.cats.find((item) => item.id === catId);
     if (!cat) return { ok: false };
-    const resolvedOwnerUid = await ensureAuthenticatedUid();
-    const recordDate = record?.date || todayKey();
-    const publicFoodRecordId = `public_food_${resolvedOwnerUid}${String(catId)}${recordDate}`;
-    const publicRef = firestoreGateway.db.collection("publicFoodRecords").doc(publicFoodRecordId);
-    const isProfilePublic = normalizeProfileVisibility(cat.profileVisibility) === "public";
-    if (!record.shareWithCommunity || !isProfilePublic) {
-      await publicRef.delete();
-      if (record.shareWithCommunity && !isProfilePublic) {
-        return { ok: true, skippedByPrivacy: true };
+    try {
+      const resolvedOwnerUid = await ensureAuthenticatedUid();
+      const recordDate = record?.date || todayKey();
+      const publicFoodRecordId = `public_food_${resolvedOwnerUid}${String(catId)}${recordDate}`;
+      const publicPath = `publicFoodRecords/${publicFoodRecordId}`;
+      const publicRef = firestoreGateway.db.collection("publicFoodRecords").doc(publicFoodRecordId);
+      const isProfilePublic = normalizeProfileVisibility(cat.profileVisibility) === "public";
+      if (!record.shareWithCommunity || !isProfilePublic) {
+        await publicRef.delete();
+        setFirebaseDebug((prev) => ({
+          ...prev,
+          publicRecordSavePath: publicPath,
+          publicRecordSaveWriteMethod: "delete()",
+          publicRecordSaveOwnerUid: resolvedOwnerUid,
+          publicRecordSaveCatId: String(catId),
+          publicRecordSaveSourceCatId: String(cat.id),
+          publicRecordSaveRecordDate: recordDate,
+          publicRecordSavePayloadKeys: "",
+          publicRecordSaveResult: record.shareWithCommunity && !isProfilePublic ? "skipped-by-profile-privacy" : "success",
+          publicRecordSaveErrorCode: "",
+          publicRecordSaveErrorMessage: "",
+        }));
+        if (record.shareWithCommunity && !isProfilePublic) {
+          return { ok: true, skippedByPrivacy: true };
+        }
+        return { ok: true };
       }
+      const payload = toPublicFoodRecordPayload({ record, cat, ownerUid: resolvedOwnerUid, publicFoodRecordId });
+      await publicRef.set(payload, { merge: true });
+      setFirebaseDebug((prev) => ({
+        ...prev,
+        publicRecordSavePath: publicPath,
+        publicRecordSaveWriteMethod: "set(merge:true)",
+        publicRecordSaveOwnerUid: resolvedOwnerUid,
+        publicRecordSaveCatId: String(catId),
+        publicRecordSaveSourceCatId: String(cat.id),
+        publicRecordSaveRecordDate: recordDate,
+        publicRecordSavePayloadKeys: Object.keys(payload).join(","),
+        publicRecordSaveResult: "success",
+        publicRecordSaveErrorCode: "",
+        publicRecordSaveErrorMessage: "",
+      }));
       return { ok: true };
+    } catch (e) {
+      const details = getFirebaseErrorDetails(e);
+      setFirebaseDebug((prev) => ({
+        ...prev,
+        publicRecordSaveResult: "failed",
+        publicRecordSaveErrorCode: details.code,
+        publicRecordSaveErrorMessage: details.message,
+      }));
+      throw e;
     }
-    const payload = toPublicFoodRecordPayload({ record, cat, ownerUid: resolvedOwnerUid, publicFoodRecordId });
-    await publicRef.set(payload, { merge: true });
-    return { ok: true };
   };
 
   const runFirestoreConnectionTest = async () => {
@@ -1749,6 +1800,7 @@ function CatHealthApp() {
     if (recordForCloud) {
       try {
         publicResult = await syncPublicFoodRecord(recordForCloud, catId);
+        setPublicCatsReloadToken((prev) => prev + 1);
       } catch (_e) {}
     }
     if (cloudResult.ok) {
@@ -1965,6 +2017,16 @@ function CatHealthApp() {
               `publicCatSave.result: ${firebaseDebug.publicCatSaveResult || ""}`,
               `publicCatSave.errorCode: ${firebaseDebug.publicCatSaveErrorCode || ""}`,
               `publicCatSave.errorMessage: ${firebaseDebug.publicCatSaveErrorMessage || ""}`,
+              `publicRecordSave.path: ${firebaseDebug.publicRecordSavePath || ""}`,
+              `publicRecordSave.writeMethod: ${firebaseDebug.publicRecordSaveWriteMethod || ""}`,
+              `publicRecordSave.ownerUid: ${firebaseDebug.publicRecordSaveOwnerUid || ""}`,
+              `publicRecordSave.catId: ${firebaseDebug.publicRecordSaveCatId || ""}`,
+              `publicRecordSave.sourceCatId: ${firebaseDebug.publicRecordSaveSourceCatId || ""}`,
+              `publicRecordSave.recordDate: ${firebaseDebug.publicRecordSaveRecordDate || ""}`,
+              `publicRecordSave.payloadKeys: ${firebaseDebug.publicRecordSavePayloadKeys || ""}`,
+              `publicRecordSave.result: ${firebaseDebug.publicRecordSaveResult || ""}`,
+              `publicRecordSave.errorCode: ${firebaseDebug.publicRecordSaveErrorCode || ""}`,
+              `publicRecordSave.errorMessage: ${firebaseDebug.publicRecordSaveErrorMessage || ""}`,
             ].join("\n")}
           </div>
         )}
