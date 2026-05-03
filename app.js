@@ -232,6 +232,13 @@ function getFirebaseErrorDetails(error) {
   return { code, message };
 }
 
+
+function getFirestoreIndexCreateUrl(message) {
+  if (typeof message !== "string" || !message.trim()) return "";
+  const match = message.match(/https:\/\/console\.firebase\.google\.com\/[^\s"')]+/);
+  return match ? match[0] : "";
+}
+
 function generatePublicId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return `pub-${crypto.randomUUID()}`;
@@ -847,6 +854,7 @@ function CatHealthApp() {
     publicRecordLoadFirstCloudId: "",
     publicRecordLoadFirstSourceCatId: "",
     publicRecordLoadFirstCatId: "",
+    publicRecordLoadIndexCreateUrl: "",
     publicJoinMethod: "",
     publicJoinPublicCatsCount: "",
     publicJoinPublicRecordsCount: "",
@@ -2084,6 +2092,12 @@ function CatHealthApp() {
               `publicRecordLoad.firstCloudId: ${firebaseDebug.publicRecordLoadFirstCloudId || ""}`,
               `publicRecordLoad.firstSourceCatId: ${firebaseDebug.publicRecordLoadFirstSourceCatId || ""}`,
               `publicRecordLoad.firstCatId: ${firebaseDebug.publicRecordLoadFirstCatId || ""}`,
+              `publicRecordLoad.indexCreateUrl: ${firebaseDebug.publicRecordLoadIndexCreateUrl || ""}`,
+              `publicRecordLoad.indexCollectionId: publicFoodRecords`,
+              `publicRecordLoad.indexField1: recordDate / ASCENDING`,
+              `publicRecordLoad.indexField2: updatedAt / DESCENDING`,
+              `publicRecordLoad.indexField3: __name__ / ASCENDING`,
+              `publicRecordLoad.indexQueryScope: COLLECTION`,
               `publicJoin.method: ${firebaseDebug.publicJoinMethod || ""}`,
               `publicJoin.publicCatsCount: ${firebaseDebug.publicJoinPublicCatsCount || ""}`,
               `publicJoin.publicRecordsCount: ${firebaseDebug.publicJoinPublicRecordsCount || ""}`,
@@ -3265,6 +3279,7 @@ function CommunityView({ firestoreGateway, authOwnerUid, authStatus, onUpdatePub
           publicRecordLoadFirstCloudId: String(firstFood.cloudId || ""),
           publicRecordLoadFirstSourceCatId: String(firstFood.sourceCatId || ""),
           publicRecordLoadFirstCatId: String(firstFood.catId || ""),
+          publicRecordLoadIndexCreateUrl: "",
         });
         const keyOf = (row, key) => String(row?.[key] || "").trim();
         const pickJoinKey = (row) => keyOf(row, "publicId") || keyOf(row, "cloudId") || keyOf(row, "sourceCatId");
@@ -3327,6 +3342,7 @@ function CommunityView({ firestoreGateway, authOwnerUid, authStatus, onUpdatePub
           publicRecordLoadFirstCloudId: "",
           publicRecordLoadFirstSourceCatId: "",
           publicRecordLoadFirstCatId: "",
+          publicRecordLoadIndexCreateUrl: getFirestoreIndexCreateUrl(details.message),
           publicJoinMethod: "",
           publicJoinPublicCatsCount: "",
           publicJoinPublicRecordsCount: "",
