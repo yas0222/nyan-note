@@ -759,6 +759,16 @@ function CatHealthApp() {
     lastAuthResult: "未実行",
     lastAuthErrorCode: "",
     lastAuthErrorMessage: "",
+    popupFlowStep: "idle",
+    popupStartedAt: "",
+    popupFinishedAt: "",
+    popupSucceeded: "",
+    popupCaughtError: "",
+    popupErrorCode: "",
+    popupErrorMessage: "",
+    popupResultUserUid: "",
+    popupResultProviderIds: "",
+    popupResultEmail: "",
     usingPopupAuth: true,
     redirectMethodsPresent: false,
   }));
@@ -790,6 +800,7 @@ function CatHealthApp() {
 
   const [selectedCatId, setSelectedCatId] = useState(() => data.cats[0]?.id ?? null);
   const [message, setMessage] = useState("");
+  const [isGoogleLoginInProgress, setIsGoogleLoginInProgress] = useState(false);
 
   useEffect(() => {
     if (initialLoadRef.current?.loadError) {
@@ -858,10 +869,29 @@ function CatHealthApp() {
   }, [authBootstrapCompleted, firestoreGateway]);
 
   const signInWithGoogle = useCallback(async () => {
+    if (isGoogleLoginInProgress) return;
     if (!firestoreGateway.enabled || !firestoreGateway.auth || !window.firebase?.auth) {
       setMessage("Googleログインを利用できません。時間をおいて再度お試しください。");
       return;
     }
+    const popupStartedAt = new Date().toISOString();
+    setIsGoogleLoginInProgress(true);
+    let authAction = "signInWithPopup";
+    setFirebaseDebug((prev) => ({
+      ...prev,
+      popupFlowStep: "prepare",
+      popupStartedAt,
+      popupFinishedAt: "",
+      popupSucceeded: "",
+      popupCaughtError: "",
+      popupErrorCode: "",
+      popupErrorMessage: "",
+      popupResultUserUid: "",
+      popupResultProviderIds: "",
+      popupResultEmail: "",
+      lastAuthErrorCode: "",
+      lastAuthErrorMessage: "",
+    }));
     try {
       const provider = new window.firebase.auth.GoogleAuthProvider();
       const currentUser = firestoreGateway.auth.currentUser;
@@ -869,24 +899,71 @@ function CatHealthApp() {
         ? currentUser.providerData.map((p) => p?.providerId).filter(Boolean)
         : [];
       const shouldLinkAnonymous = Boolean(currentUser?.uid && currentUser?.isAnonymous && !providerIds.includes("google.com"));
-      setFirebaseDebug((prev) => ({ ...prev, lastAuthAction: shouldLinkAnonymous ? "linkWithPopup" : "signInWithPopup" }));
-      if (shouldLinkAnonymous) {
-        await currentUser.linkWithPopup(provider);
-      } else {
-        await firestoreGateway.auth.signInWithPopup(provider);
-      }
-      setFirebaseDebug((prev) => ({ ...prev, lastAuthResult: "success", lastAuthErrorCode: "", lastAuthErrorMessage: "" }));
-      setMessage("Googleログインが完了しました。");
-    } catch (e) {
-      const details = getFirebaseErrorDetails(e);
+      authAction = shouldLinkAnonymous ? "linkWithPopup" : "signInWithPopup";
+      setFirebaseDebug((prev) => ({ ...prev, lastAuthAction: authAction, popupFlowStep: `${authAction}:before` }));
+      const result = shouldLinkAnonymous ? await currentUser.linkWithPopup(provider) : await firestoreGateway.auth.signInWithPopup(provider);
+      const popupFinishedAt = new Date().toISOString();
       setFirebaseDebug((prev) => ({
         ...prev,
+        popupFlowStep: `${authAction}:success`,
+        popupFinishedAt,
+        popupSucceeded: "true",
+        popupCaughtError: "false",
+        popupResultUserUid: result?.user?.uid || "",
+        popupResultProviderIds: (result?.user?.providerData || []).map((p) => p?.providerId).filter(Boolean).join(","),
+        popupResultEmail: result?.user?.email || "",
+        lastAuthResult: "success",
+        lastAuthErrorCode: "",
+        lastAuthErrorMessage: "",
+      }));
+      setFirebaseDebug((prev) => ({ ...prev, popupFlowStep: `${authAction}:reload` }));
+      if (firestoreGateway.auth.currentUser) {
+        await firestoreGateway.auth.currentUser.reload();
+      }
+      const refreshedUser = firestoreGateway.auth.currentUser;
+      const refreshedProviderIds = Array.isArray(refreshedUser?.providerData)
+        ? refreshedUser.providerData.map((p) => p?.providerId).filter(Boolean)
+        : [];
+      const isGoogleLinked = refreshedProviderIds.includes("google.com");
+      setAuthUserInfo({
+        status: isGoogleLinked ? "Googleログイン済み" : "匿名ログイン中",
+        isGoogleLinked,
+        userLabel: refreshedUser?.displayName || refreshedUser?.email || "",
+      });
+      setFirebaseDebug((prev) => ({
+        ...prev,
+        authStatus: isGoogleLinked ? "Googleログイン済み" : "匿名ログイン中",
+        popupFlowStep: `${authAction}:post-check`,
+        popupResultUserUid: refreshedUser?.uid || prev.popupResultUserUid,
+        popupResultProviderIds: refreshedProviderIds.join(","),
+        popupResultEmail: refreshedUser?.email || prev.popupResultEmail,
+      }));
+      setMessage(isGoogleLinked ? "Googleログインが完了しました。" : "Googleログイン後の状態確認が必要です。再度お試しください。");
+    } catch (e) {
+      const details = getFirebaseErrorDetails(e);
+      const popupFinishedAt = new Date().toISOString();
+      setFirebaseDebug((prev) => ({
+        ...prev,
+        popupFlowStep: `${authAction}:catch`,
+        popupFinishedAt,
+        popupSucceeded: "false",
+        popupCaughtError: "true",
+        popupErrorCode: details.code,
+        popupErrorMessage: details.message,
         lastAuthResult: "error",
-        lastAuthErrorCode: details.code,
-        lastAuthErrorMessage: details.message,
+        lastAuthErrorCode: details.code || "auth/unknown",
+        lastAuthErrorMessage: details.message || "不明な認証エラー",
       }));
       if (details.code === "auth/popup-closed-by-user") {
-        setMessage("Googleログインがキャンセルされました");
+        setMessage("Googleログインをユーザーが閉じました（auth/popup-closed-by-user）");
+        return;
+      }
+      if (details.code === "auth/cancelled-popup-request") {
+        setMessage("Googleログイン要求がキャンセルされました（auth/cancelled-popup-request）");
+        return;
+      }
+      if (details.code === "auth/popup-blocked") {
+        setMessage("ポップアップがブロックされました（auth/popup-blocked）");
         return;
       }
       if (details.code === "auth/credential-already-in-use") {
@@ -894,8 +971,16 @@ function CatHealthApp() {
         return;
       }
       setMessage("Googleログインに失敗しました。時間をおいてもう一度お試しください");
+    } finally {
+      const popupFinishedAt = new Date().toISOString();
+      setFirebaseDebug((prev) => ({
+        ...prev,
+        popupFlowStep: `${authAction}:finally`,
+        popupFinishedAt: prev.popupFinishedAt || popupFinishedAt,
+      }));
+      setIsGoogleLoginInProgress(false);
     }
-  }, [firestoreGateway]);
+  }, [firestoreGateway, isGoogleLoginInProgress]);
 
   const [publicCatsReloadToken, setPublicCatsReloadToken] = useState(0);
 
@@ -1538,6 +1623,16 @@ function CatHealthApp() {
               `lastAuthErrorMessage: ${firebaseDebug.lastAuthErrorMessage || ""}`,
               `usingPopupAuth: true`,
               `redirectMethodsPresent: false`,
+              `popupFlowStep: ${firebaseDebug.popupFlowStep || ""}`,
+              `popupStartedAt: ${firebaseDebug.popupStartedAt || ""}`,
+              `popupFinishedAt: ${firebaseDebug.popupFinishedAt || ""}`,
+              `popupSucceeded: ${firebaseDebug.popupSucceeded || ""}`,
+              `popupCaughtError: ${firebaseDebug.popupCaughtError || ""}`,
+              `popupErrorCode: ${firebaseDebug.popupErrorCode || ""}`,
+              `popupErrorMessage: ${firebaseDebug.popupErrorMessage || ""}`,
+              `popupResultUserUid: ${firebaseDebug.popupResultUserUid || ""}`,
+              `popupResultProviderIds: ${firebaseDebug.popupResultProviderIds || ""}`,
+              `popupResultEmail: ${firebaseDebug.popupResultEmail || ""}`,
             ].join("\n")}
           </div>
         )}
@@ -1558,6 +1653,7 @@ function CatHealthApp() {
             onShowMessage={setMessage}
             authUserInfo={authUserInfo}
             onGoogleLogin={signInWithGoogle}
+            isGoogleLoginInProgress={isGoogleLoginInProgress}
           />
         )}
         {tab === "mycat" && <MyCatView cats={data.cats} logsByCat={data.logsByCat} />}
@@ -1676,6 +1772,7 @@ function HomeView({
   onShowMessage,
   authUserInfo,
   onGoogleLogin,
+  isGoogleLoginInProgress,
 }) {
   const today = new Date();
   const dateStr = `${today.getMonth() + 1}月${today.getDate()}日`;
@@ -2014,7 +2111,9 @@ function HomeView({
         <div style={{ fontSize: 13, color: palette.ink }}>{authUserInfo.status}</div>
         {authUserInfo.userLabel ? <div style={{ marginTop: 4, fontSize: 11, color: palette.inkSoft }}>{authUserInfo.userLabel}</div> : null}
         <div style={{ marginTop: 10 }}>
-          <MiniButton onClick={onGoogleLogin}>Googleでログイン</MiniButton>
+          <MiniButton onClick={onGoogleLogin} disabled={isGoogleLoginInProgress}>
+            {isGoogleLoginInProgress ? "Googleログイン処理中..." : "Googleでログイン"}
+          </MiniButton>
         </div>
       </div>
       <div style={{ ...cardStyle, padding: "14px 14px 16px" }}>
@@ -3138,10 +3237,11 @@ function FormErrorList({ errors }) {
   );
 }
 
-function MiniButton({ onClick, children }) {
+function MiniButton({ onClick, children, disabled = false }) {
   return (
     <button
       onClick={onClick}
+      disabled={disabled}
       style={{
         border: `1px solid ${palette.line}`,
         background: palette.cream,
@@ -3150,7 +3250,8 @@ function MiniButton({ onClick, children }) {
         padding: "4px 10px",
         fontSize: 11,
         fontFamily: fontBody,
-        cursor: "pointer",
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.6 : 1,
       }}
     >
       {children}
