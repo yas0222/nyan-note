@@ -713,6 +713,7 @@ function loadInitialDataSafely() {
 function CatHealthApp() {
   const [localOwnerUid] = useState(() => getOrCreateAnonymousOwnerId());
   const [authOwnerUid, setAuthOwnerUid] = useState("");
+  const [authUserInfo, setAuthUserInfo] = useState({ status: "未認証", isGoogleLinked: false, userLabel: "" });
   const [firestoreGateway] = useState(() => createFirestoreGateway());
   const [firebaseStatus, setFirebaseStatus] = useState(
     firestoreGateway.firestoreInitStatus === "Firestore 初期化成功" ? "Firebase保存可能" : "Firebase保存エラー",
@@ -843,6 +844,30 @@ function CatHealthApp() {
     await currentUser.getIdToken(true);
     setAuthOwnerUid(uid);
     return uid;
+  }, [firestoreGateway]);
+
+  const signInWithGoogle = useCallback(async () => {
+    if (!firestoreGateway.enabled || !firestoreGateway.auth || !window.firebase?.auth) {
+      setMessage("Googleログインを利用できません。時間をおいて再度お試しください。");
+      return;
+    }
+    try {
+      const provider = new window.firebase.auth.GoogleAuthProvider();
+      const currentUser = firestoreGateway.auth.currentUser;
+      if (currentUser?.uid && currentUser.isAnonymous) {
+        await currentUser.linkWithPopup(provider);
+      } else {
+        await firestoreGateway.auth.signInWithPopup(provider);
+      }
+      setMessage("Googleログインが完了しました。");
+    } catch (e) {
+      const details = getFirebaseErrorDetails(e);
+      if (details.code === "auth/credential-already-in-use") {
+        setMessage("このGoogleアカウントは、すでに別のユーザーに紐づいています。別のアカウントを使うか、サポートにご相談ください。");
+        return;
+      }
+      setMessage("Googleログインに失敗しました。時間をおいて再度お試しください。");
+    }
   }, [firestoreGateway]);
 
   const [publicCatsReloadToken, setPublicCatsReloadToken] = useState(0);
@@ -1092,30 +1117,41 @@ function CatHealthApp() {
   }, [allowAutoSave, data]);
 
   useEffect(() => {
-    const runAnonymousAuth = async () => {
+    const initAuth = async () => {
       if (!firestoreGateway.enabled || !firestoreGateway.auth) {
-        setFirebaseDebug((prev) => ({
-          ...prev,
-          authStatus: "未認証",
-        }));
+        setAuthUserInfo({ status: "未認証", isGoogleLinked: false, userLabel: "" });
         return;
       }
-      setFirebaseDebug((prev) => ({
-        ...prev,
-        authStatus: "匿名ログイン中",
-      }));
       try {
-        const uid = firestoreGateway.auth.currentUser?.uid || (await firestoreGateway.auth.signInAnonymously())?.user?.uid || "";
-        if (!uid) {
-          throw new Error("匿名ログインでuidを取得できませんでした");
-        }
-        setAuthOwnerUid(uid);
-        setFirebaseDebug((prev) => ({
-          ...prev,
-          authStatus: "匿名ログイン済み",
-          lastErrorCode: "",
-          lastErrorMessage: "",
-        }));
+        await firestoreGateway.auth.setPersistence(window.firebase.auth.Auth.Persistence.LOCAL);
+        await new Promise((resolve) => {
+          const unsub = firestoreGateway.auth.onAuthStateChanged(async (user) => {
+            try {
+              if (!user) {
+                const result = await firestoreGateway.auth.signInAnonymously();
+                const anonUid = result?.user?.uid || "";
+                setAuthOwnerUid(anonUid);
+                setAuthUserInfo({ status: "匿名ログイン中", isGoogleLinked: false, userLabel: "" });
+                setFirebaseDebug((prev) => ({ ...prev, authStatus: "匿名ログイン中" }));
+                resolve();
+                return;
+              }
+              const providerIds = Array.isArray(user.providerData) ? user.providerData.map((p) => p?.providerId).filter(Boolean) : [];
+              const isGoogleLinked = providerIds.includes("google.com");
+              const userLabel = user.displayName || user.email || "";
+              setAuthOwnerUid(user.uid || "");
+              setAuthUserInfo({
+                status: isGoogleLinked ? "Googleログイン済み" : "匿名ログイン中",
+                isGoogleLinked,
+                userLabel,
+              });
+              setFirebaseDebug((prev) => ({ ...prev, authStatus: isGoogleLinked ? "Googleログイン済み" : "匿名ログイン中" }));
+              resolve();
+            } finally {
+              unsub();
+            }
+          });
+        });
       } catch (e) {
         const details = getFirebaseErrorDetails(e);
         console.error("[Firebase Auth] 匿名ログイン失敗", details, e);
@@ -1128,7 +1164,7 @@ function CatHealthApp() {
         }));
       }
     };
-    runAnonymousAuth();
+    initAuth();
   }, [firestoreGateway]);
 
   useEffect(() => {
@@ -1317,7 +1353,7 @@ function CatHealthApp() {
     if (cloudResult.ok) {
       setMessage(publicResult.skippedByPrivacy ? "今日の記録を保存しました（プロフィール非公開のため、みんなには共有されません）" : "今日の記録を保存しました");
     } else {
-      setMessage("今日の記録を保存しました（クラウド同期で一部失敗しました）");
+      setMessage("オンライン保存に失敗しました。ログイン状態と保存済みデータの所有者が一致していない可能性があります。");
     }
     return { ok: true };
   };
@@ -1470,13 +1506,8 @@ function CatHealthApp() {
             onUpdateCat={updateCat}
             onDeleteCat={deleteCat}
             onShowMessage={setMessage}
-            onDeleteSampleOnly={deleteSampleOnly}
-            onResetAllData={resetAllData}
-            onExportData={exportData}
-            onImportBackupFile={importBackupFile}
-            firebaseStatus={firebaseStatus}
-            firebaseDebug={firebaseDebug}
-            onRunFirestoreConnectionTest={runFirestoreConnectionTest}
+            authUserInfo={authUserInfo}
+            onGoogleLogin={signInWithGoogle}
           />
         )}
         {tab === "mycat" && <MyCatView cats={data.cats} logsByCat={data.logsByCat} />}
@@ -1593,21 +1624,14 @@ function HomeView({
   onUpdateCat,
   onDeleteCat,
   onShowMessage,
-  onDeleteSampleOnly,
-  onResetAllData,
-  onExportData,
-  onImportBackupFile,
-  firebaseStatus,
-  firebaseDebug,
-  onRunFirestoreConnectionTest,
+  authUserInfo,
+  onGoogleLogin,
 }) {
   const today = new Date();
   const dateStr = `${today.getMonth() + 1}月${today.getDate()}日`;
   const [showAdd, setShowAdd] = useState(false);
-  const [showDevMenu, setShowDevMenu] = useState(false);
   const [editingCatId, setEditingCatId] = useState(null);
   const [errors, setErrors] = useState([]);
-  const importFileInputRef = useRef(null);
   const editFormRef = useRef(null);
   const [form, setForm] = useState({
     name: "",
@@ -1936,6 +1960,14 @@ function HomeView({
       )}
 
       <div style={{ ...cardStyle, padding: "14px 14px 16px" }}>
+        <div style={{ fontSize: 11, color: palette.inkSoft, letterSpacing: "0.05em", marginBottom: 6 }}>ログイン情報</div>
+        <div style={{ fontSize: 13, color: palette.ink }}>{authUserInfo.status}</div>
+        {authUserInfo.userLabel ? <div style={{ marginTop: 4, fontSize: 11, color: palette.inkSoft }}>{authUserInfo.userLabel}</div> : null}
+        <div style={{ marginTop: 10 }}>
+          <MiniButton onClick={onGoogleLogin}>Googleでログイン</MiniButton>
+        </div>
+      </div>
+      <div style={{ ...cardStyle, padding: "14px 14px 16px" }}>
         <div style={{ fontSize: 11, color: palette.inkSoft, letterSpacing: "0.05em", marginBottom: 4 }}>
           プライバシー・利用上の注意
         </div>
@@ -1945,6 +1977,9 @@ function HomeView({
           </li>
           <li style={{ fontSize: 12, color: palette.ink, lineHeight: 1.5 }}>
             「今日の記録をみんなに共有する」をONにした場合のみ、ごはん量・飲水量・おやつ・うんち回数・おしっこ回数が公開プロフィールカード内に表示されます。
+          </li>
+          <li style={{ fontSize: 12, color: palette.ink, lineHeight: 1.5 }}>
+            Googleログインを使うと、端末変更や再読み込み後もデータを復元しやすくなります。Googleログインしても、許可なく記録が公開されることはありません。
           </li>
           <li style={{ fontSize: 12, color: palette.ink, lineHeight: 1.5 }}>
             メモ、写真、体重は「みんな」画面には公開されません。猫ちゃんの名前や地域の表示はプロフィール公開設定に従います。
@@ -2002,121 +2037,7 @@ function HomeView({
           ※現在β版です。表示や機能は予告なく変更される場合があります。
         </div>
       </div>
-      {SHOW_DEV_MENU_IN_PUBLIC && <div style={devMenuCardStyle}>
-        <button type="button" onClick={() => setShowDevMenu((prev) => !prev)} style={devMenuToggleStyle}>
-          開発用メニュー {showDevMenu ? "▲" : "▼"}
-        </button>
-        {showDevMenu && (
-          <>
-            <div style={{ ...cardStyle, borderStyle: "dashed", marginTop: 10 }}>
-              <Label>データ管理</Label>
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <MiniButton onClick={onDeleteSampleOnly}>サンプルだけ削除</MiniButton>
-                <MiniButton onClick={onResetAllData}>全データをリセット</MiniButton>
-                <MiniButton onClick={onExportData}>データを書き出す</MiniButton>
-                <MiniButton onClick={() => importFileInputRef.current?.click()}>バックアップを読み込む</MiniButton>
-                <input
-                  ref={importFileInputRef}
-                  type="file"
-                  accept="application/json,.json"
-                  style={{ display: "none" }}
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    onImportBackupFile(file);
-                    e.target.value = "";
-                  }}
-                />
-              </div>
-            </div>
-
-            <div style={{ ...cardStyle, padding: "12px 14px", marginTop: -4 }}>
-              <div style={{ fontSize: 11, color: palette.inkSoft, letterSpacing: "0.05em", marginBottom: 4 }}>プライバシーについて</div>
-              <ul style={{ margin: 0, paddingLeft: 16, display: "grid", gap: 4 }}>
-                <li style={{ fontSize: 12, color: palette.ink, lineHeight: 1.5 }}>
-                  猫プロフィール・日次記録・メモは、健康記録のために保存されます。
-                </li>
-                <li style={{ fontSize: 12, color: palette.ink, lineHeight: 1.5 }}>
-                  日次記録・メモ・写真データは「みんな」画面に公開されません。
-                </li>
-                <li style={{ fontSize: 12, color: palette.ink, lineHeight: 1.5 }}>
-                  「今日の記録をみんなに共有する」をONにした場合のみ、ごはん量・飲水量・おやつ・うんち回数・おしっこ回数が公開プロフィールカード内に表示されます。
-                </li>
-                <li style={{ fontSize: 12, color: palette.ink, lineHeight: 1.5 }}>
-                  メモ、写真、体重は「みんな」画面には公開されません。猫ちゃんの名前や地域の表示はプロフィール公開設定に従います。
-                </li>
-                <li style={{ fontSize: 12, color: palette.ink, lineHeight: 1.5 }}>
-                  本名・住所・電話番号などの個人情報は入力しないでください。
-                </li>
-                <li style={{ fontSize: 12, color: palette.ink, lineHeight: 1.5 }}>
-                  大切な記録は、バックアップを書き出して保存できます。
-                </li>
-              </ul>
-              <a
-                href="./privacy.html"
-                style={{
-                  display: "inline-block",
-                  marginTop: 8,
-                  fontSize: 12,
-                  color: palette.accent,
-                  textDecoration: "underline",
-                  fontWeight: 700,
-                }}
-              >
-                プライバシーポリシーを見る
-              </a>
-            </div>
-
-            <div style={{ ...cardStyle, padding: "12px 14px", marginTop: -4 }}>
-              <div style={{ fontSize: 11, color: palette.inkSoft, letterSpacing: "0.05em", marginBottom: 4 }}>Firebase診断</div>
-              <div style={{ fontSize: 12, color: palette.ink }}>
-                Firebase接続状態:{" "}
-                <span style={{ color: firebaseStatus === "Firebase保存エラー" ? palette.accent : palette.inkSoft }}>{firebaseStatus}</span>
-              </div>
-              <div style={{ fontSize: 11, color: palette.inkSoft, marginTop: 6 }}>Firebase: {firebaseDebug.configStatus}</div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>Firebase app: {firebaseDebug.appInitStatus}</div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>Firestore: {firebaseDebug.firestoreInitStatus}</div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>Firebase Auth: {firebaseDebug.authInitStatus}</div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>認証状態: {firebaseDebug.authStatus}</div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>Firebase Auth uid: {firebaseDebug.authUid || "なし"}</div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>
-                localStorage fallback ownerId: {firebaseDebug.fallbackOwnerId || "なし"}
-              </div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>現在保存に使っている ownerUid: {firebaseDebug.activeOwnerUid || "なし"}</div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>ownerUidの種類: {firebaseDebug.ownerUidType}</div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>最後の猫プロフィール保存結果: {firebaseDebug.lastCatSaveResult}</div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>最後の公開プロフィール保存結果: {firebaseDebug.lastPublicCatSaveResult}</div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>最後の publicCats 読み込み結果: {firebaseDebug.lastPublicCatsLoadResult}</div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>
-                最後の公開プロフィール読み込み条件: {firebaseDebug.lastPublicCatsLoadCondition}
-              </div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>最後に猫プロフィール保存で使った ownerUid: {firebaseDebug.lastCatSavedOwnerUid}</div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>最後の日次記録保存結果: {firebaseDebug.lastRecordSaveResult}</div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>最後に日次記録保存で使った ownerUid: {firebaseDebug.lastRecordSavedOwnerUid}</div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>日次記録の保存先コレクション: {firebaseDebug.lastRecordCollection}</div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>日次記録の recordId: {firebaseDebug.lastRecordId}</div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>日次記録保存時 auth.currentUser.uid: {firebaseDebug.lastRecordAuthUid}</div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>日次記録 payload.ownerUid: {firebaseDebug.lastRecordPayloadOwnerUid}</div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>auth.app.name / db.app.name: {firebaseDebug.lastAuthAppName} / {firebaseDebug.lastDbAppName}</div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>auth.projectId / db.projectId: {firebaseDebug.lastAuthProjectId} / {firebaseDebug.lastDbProjectId}</div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>日次記録保存 path: {firebaseDebug.lastRecordPath}</div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>recordDocExists: {firebaseDebug.lastRecordDocExists}</div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>existingOwnerUid: {firebaseDebug.lastRecordExistingOwnerUid}</div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>ID Token uid相当: {firebaseDebug.lastRecordAuthTokenUid}</div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>日次記録 catId: {firebaseDebug.lastRecordCatId}</div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>日次記録 recordDate: {firebaseDebug.lastRecordDate}</div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>日次記録の保存方式: {firebaseDebug.lastRecordWriteMode}</div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>Firestore接続テスト: {firebaseDebug.lastConnectionTestResult}</div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>最後のFirebaseエラーコード: {firebaseDebug.lastErrorCode || "なし"}</div>
-              <div style={{ fontSize: 11, color: palette.inkSoft }}>
-                最後のFirebaseエラーメッセージ: {firebaseDebug.lastErrorMessage || "なし"}
-              </div>
-              <div style={{ marginTop: 8 }}>
-                <MiniButton onClick={onRunFirestoreConnectionTest}>Firestore接続テスト</MiniButton>
-              </div>
-            </div>
-          </>
-        )}
-      </div>}
+      
     </div>
   );
 }
