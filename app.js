@@ -1052,14 +1052,26 @@ function CatHealthApp() {
       }));
     };
     if (!firestoreGateway.enabled || !firestoreGateway.db) {
+      firestoreCatExists = "false";
+      firestoreCatOwnerUid = "";
       updateFirestoreSaveDebug("猫プロフィール", false, saveTargetOwnerUid, "firestore/not-initialized", "Firestore未初期化のため保存をスキップしました");
       updateFirestoreSaveDebug("公開プロフィール", false, saveTargetOwnerUid, "firestore/not-initialized", "Firestore未初期化のため公開プロフィール保存をスキップしました");
       setCatSaveDebug({ result: "skip:not-initialized", errorCode: "firestore/not-initialized", errorMessage: "Firestore未初期化" });
       return { ok: false, reason: "not-initialized" };
     }
     try {
-      currentAuthUid = await ensureAuthenticatedUid();
+      currentAuthUid = String(await ensureAuthenticatedUid() || "").trim();
       saveTargetOwnerUid = currentAuthUid;
+      if (!currentAuthUid) {
+        catSaveMode = "localOnly";
+        firestoreCatExists = "false";
+        firestoreCatOwnerUid = "";
+        const message = "認証UIDが取得できないためクラウド保存をスキップしました";
+        setCatSaveDebug({ result: "blocked:missing-auth-uid", errorCode: "auth/missing-uid", errorMessage: message });
+        updateFirestoreSaveDebug("猫プロフィール", false, currentAuthUid, "auth/missing-uid", message);
+        setFirebaseDebug((prev) => ({ ...prev, lastPublicCatSaveResult: "公開プロフィール: 未実行（認証UIDなし）" }));
+        return { ok: false, reason: "missing-auth-uid" };
+      }
       const catRef = firestoreGateway.db.collection("cats").doc(catId);
       const existingDoc = await catRef.get();
       const docExists = Boolean(existingDoc?.exists);
@@ -1084,6 +1096,14 @@ function CatHealthApp() {
       payload.localId = catLocalId;
       payload.cloudId = catId;
       payloadOwnerUid = payload.ownerUid || "";
+      if (!payloadOwnerUid) {
+        catSaveMode = "localOnly";
+        const message = "ownerUid が空のためクラウド保存をスキップしました";
+        setCatSaveDebug({ result: "blocked:missing-owner-uid", errorCode: "cat/missing-owner-uid", errorMessage: message });
+        updateFirestoreSaveDebug("猫プロフィール", false, currentAuthUid, "cat/missing-owner-uid", message);
+        setFirebaseDebug((prev) => ({ ...prev, lastPublicCatSaveResult: "公開プロフィール: 未実行（ownerUidなし）" }));
+        return { ok: false, reason: "missing-owner-uid" };
+      }
       await catRef.set(payload, { merge: true });
       if (isPublicCatEnabled(cat)) {
         const publicPayload = toPublicCatPayload(cat, currentAuthUid);
