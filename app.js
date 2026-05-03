@@ -2708,13 +2708,15 @@ function CommunityView({ firestoreGateway, authOwnerUid, authStatus, onUpdatePub
           };
         });
         const foodSnap = await firestoreGateway.db.collection("publicFoodRecords").orderBy("updatedAt", "desc").limit(500).get();
+        const todayDateKey = todayKey();
         const foodMap = {};
         foodSnap.docs.forEach((doc) => {
           const row = doc.data() || {};
+          if (String(row.recordDate || "") !== todayDateKey) return;
           const key = `${row.ownerUid || ""}__${row.sourceCatId || ""}`;
           if (!key || key === "__") return;
           const prev = foodMap[key];
-          if (!prev || String(prev.recordDate || "") < String(row.recordDate || "")) foodMap[key] = row;
+          if (!prev) foodMap[key] = row;
         });
         const itemsWithFood = items.map((cat) => ({ ...cat, publicFood: foodMap[`${cat.ownerUid}__${cat.sourceCatId}`] || null }));
         if (cancelled) return;
@@ -2826,7 +2828,7 @@ function CommunityView({ firestoreGateway, authOwnerUid, authStatus, onUpdatePub
                 </div>
                 {cat.publicFood && (
                   <div style={{ marginTop: 8, fontSize: 12, color: palette.ink, lineHeight: 1.6 }}>
-                    {Number(cat.publicFood.foodAmount) > 0 ? <div>🍚 {cat.publicFood.recordDate === todayKey() ? "今日のごはん" : `${cat.publicFood.recordDate}のごはん`} {Number(cat.publicFood.foodAmount)}g</div> : null}
+                    {Number(cat.publicFood.foodAmount) > 0 ? <div>🍚 今日のごはん {Number(cat.publicFood.foodAmount)}g</div> : null}
                     {Number(cat.publicFood.waterMl) > 0 ? <div>💧 飲水 {Number(cat.publicFood.waterMl)}ml</div> : null}
                     {typeof cat.publicFood.treatLevel === "string" && cat.publicFood.treatLevel ? <div>🍪 おやつ {cat.publicFood.treatLevel}</div> : null}
                     {Number.isFinite(Number(cat.publicFood.poopCount)) && Number(cat.publicFood.poopCount) >= 0 ? <div>💩 うんち {Number(cat.publicFood.poopCount)}回</div> : null}
