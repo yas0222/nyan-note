@@ -904,11 +904,78 @@ function CatHealthApp() {
   const [message, setMessage] = useState("");
   const [isGoogleLoginInProgress, setIsGoogleLoginInProgress] = useState(false);
   const [pendingMigrationNotice, setPendingMigrationNotice] = useState("");
+  const [isUpdateAvailable, setIsUpdateAvailable] = useState(false);
+  const swRegistrationRef = useRef(null);
+  const shouldReloadOnControllerChangeRef = useRef(false);
 
   useEffect(() => {
     if (initialLoadRef.current?.loadError) {
       setMessage("端末データの読み込みに失敗したため、保存は停止しています。rescue.html でバックアップを書き出してください。");
     }
+  }, []);
+
+  useEffect(() => {
+    if (!("serviceWorker" in navigator)) return undefined;
+
+    let cancelled = false;
+
+    const markUpdateAvailable = () => {
+      if (!cancelled) setIsUpdateAvailable(true);
+    };
+
+    const setupRegistration = async () => {
+      try {
+        const registration = await navigator.serviceWorker.register("./sw.js");
+        swRegistrationRef.current = registration;
+
+        if (registration.waiting) markUpdateAvailable();
+
+        registration.addEventListener("updatefound", () => {
+          const installingWorker = registration.installing;
+          if (!installingWorker) return;
+          installingWorker.addEventListener("statechange", () => {
+            if (installingWorker.state === "installed" && navigator.serviceWorker.controller) {
+              markUpdateAvailable();
+            }
+          });
+        });
+
+        const checkForUpdate = () => registration.update().catch(() => undefined);
+        checkForUpdate();
+        const timerId = window.setInterval(checkForUpdate, 60 * 60 * 1000);
+        return () => window.clearInterval(timerId);
+      } catch (_error) {
+        return undefined;
+      }
+    };
+
+    let disposeInterval;
+    setupRegistration().then((cleanup) => {
+      disposeInterval = cleanup;
+    });
+
+    const onControllerChange = () => {
+      if (!shouldReloadOnControllerChangeRef.current) return;
+      shouldReloadOnControllerChangeRef.current = false;
+      window.location.reload();
+    };
+    navigator.serviceWorker.addEventListener("controllerchange", onControllerChange);
+
+    return () => {
+      cancelled = true;
+      navigator.serviceWorker.removeEventListener("controllerchange", onControllerChange);
+      if (typeof disposeInterval === "function") disposeInterval();
+    };
+  }, []);
+
+  const reloadAppToApplyUpdate = useCallback(() => {
+    const waitingWorker = swRegistrationRef.current?.waiting;
+    if (waitingWorker) {
+      shouldReloadOnControllerChangeRef.current = true;
+      waitingWorker.postMessage({ type: "SKIP_WAITING" });
+      return;
+    }
+    window.location.reload();
   }, []);
 
   useEffect(() => {
@@ -2067,6 +2134,32 @@ function CatHealthApp() {
         {message && (
           <div style={{ ...cardStyle, background: "#FFF7E8", fontSize: 12, padding: "10px 14px" }}>
             {message}
+          </div>
+        )}
+        {isUpdateAvailable && (
+          <div
+            style={{
+              ...cardStyle,
+              position: "fixed",
+              left: "50%",
+              bottom: 88,
+              transform: "translateX(-50%)",
+              width: "min(440px, calc(100vw - 24px))",
+              zIndex: 20,
+              background: "#ffffffee",
+              backdropFilter: "blur(4px)",
+              border: "1px solid #f0d8a6",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              padding: "10px 12px",
+            }}
+          >
+            <div style={{ fontSize: 12, color: "#744b1f", fontWeight: 700 }}>新しい版があります</div>
+            <button type="button" onClick={reloadAppToApplyUpdate} style={{ ...buttonStyle, padding: "8px 12px", fontSize: 12 }}>
+              再読み込みして更新
+            </button>
           </div>
         )}
         {AUTH_DEBUG_ENABLED && (
