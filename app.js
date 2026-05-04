@@ -1660,28 +1660,31 @@ function CatHealthApp() {
     initAuth();
   }, [firestoreGateway]);
 
+  const safeCats = Array.isArray(data?.cats) ? data.cats : [];
+  const safeLogsByCat = data?.logsByCat && typeof data.logsByCat === "object" && !Array.isArray(data.logsByCat) ? data.logsByCat : {};
+
   useEffect(() => {
-    if (!data.cats.length) {
+    if (!safeCats.length) {
       setSelectedCatId(null);
       return;
     }
-    if (!data.cats.some((c) => c.id === selectedCatId)) {
-      setSelectedCatId(data.cats[0].id);
+    if (!safeCats.some((c) => c.id === selectedCatId)) {
+      setSelectedCatId(safeCats[0].id);
     }
-  }, [data.cats, selectedCatId]);
+  }, [safeCats, selectedCatId]);
 
-  const selectedCat = data.cats.find((c) => c.id === selectedCatId) || null;
+  const selectedCat = safeCats.find((c) => c.id === selectedCatId) || null;
 
   const todayLogByCat = useMemo(() => {
     const t = todayKey();
     const map = {};
-    for (const cat of data.cats) {
-      const list = data.logsByCat[cat.id] || [];
+    for (const cat of safeCats) {
+      const list = safeLogsByCat[cat.id] || [];
       const log = list.find((row) => row.date === t);
       map[cat.id] = log || null;
     }
     return map;
-  }, [data]);
+  }, [safeCats, safeLogsByCat]);
 
   const updateCats = (updater) => {
     setData((prev) => ({ ...prev, cats: updater(prev.cats) }));
@@ -2118,7 +2121,7 @@ function CatHealthApp() {
         )}
         {tab === "home" && (
           <HomeView
-            cats={data.cats}
+            cats={safeCats}
             todayLogByCat={todayLogByCat}
             selectedCatId={selectedCatId}
             onPick={(c) => setSelectedCatId(c.id)}
@@ -2136,14 +2139,14 @@ function CatHealthApp() {
             isGoogleLoginInProgress={isGoogleLoginInProgress}
           />
         )}
-        {tab === "mycat" && <MyCatView cats={data.cats} logsByCat={data.logsByCat} />}
+        {tab === "mycat" && <MyCatView cats={safeCats} logsByCat={safeLogsByCat} />}
         {tab === "log" && selectedCat && (
           <LogView
             cat={selectedCat}
-            logs={data.logsByCat[selectedCat.id] || []}
+            logs={safeLogsByCat[selectedCat.id] || []}
             saveLog={saveLog}
             deleteLog={deleteLog}
-            cats={data.cats}
+            cats={safeCats}
             setSelectedCat={(c) => setSelectedCatId(c.id)}
             onMoveHome={() => setTab("home")}
             onShowMessage={setMessage}
@@ -2609,7 +2612,7 @@ function HomeView({
   );
 }
 
-function MyCatView({ cats, logsByCat }) {
+function MyCatView({ cats = [], logsByCat = {} }) {
   if (!cats.length) {
     return (
       <div>
@@ -3515,7 +3518,9 @@ function StatsView({ firestoreGateway, authOwnerUid, authStatus, reloadToken }) 
       {loadState === "error" && <div style={{ ...cardStyle, fontSize: 12, color: palette.inkSoft }}>統計の読み込みに失敗しました</div>}
 
       {(loadState === "empty" || (loadState === "loaded" && !hasStats)) && (
-        <div style={{ ...cardStyle, fontSize: 12, color: palette.inkSoft }}>公開されている猫ちゃんが増えると統計が表示されます</div>
+        <div style={{ ...cardStyle, fontSize: 12, color: palette.inkSoft }}>
+          まだ記録がありません。今日の記録を保存すると、ここに振り返りが表示されます。
+        </div>
       )}
 
       {loadState === "loaded" && hasStats && (
@@ -4047,8 +4052,39 @@ class AppErrorBoundary extends React.Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{ padding: "24px", fontFamily: fontBody, color: palette.ink }}>
-          アプリの読み込み中にエラーが発生しました。再読み込みしてください。
+        <div
+          style={{
+            minHeight: "100vh",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "24px",
+            background: palette.paper,
+            fontFamily: fontBody,
+            color: palette.ink,
+          }}
+        >
+          <div style={{ ...cardStyle, maxWidth: 420, width: "100%", textAlign: "center" }}>
+            <div style={{ fontFamily: fontDisplay, fontSize: 20, fontWeight: 700, marginBottom: 8 }}>画面の読み込みに失敗しました</div>
+            <div style={{ fontSize: 13, color: palette.inkSoft, marginBottom: 6 }}>お手数ですが、ページを再読み込みしてください。</div>
+            <div style={{ fontSize: 12, color: palette.inkSoft }}>記録データはFirebase側に保存されている場合があります。</div>
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              style={{
+                marginTop: 14,
+                borderRadius: 10,
+                border: `1px solid ${palette.line}`,
+                background: palette.accent,
+                color: "#fff",
+                fontWeight: 700,
+                padding: "10px 16px",
+                cursor: "pointer",
+              }}
+            >
+              再読み込み
+            </button>
+          </div>
         </div>
       );
     }
