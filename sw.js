@@ -1,4 +1,5 @@
-const CACHE_NAME = "nyan-note-static-v20260504";
+const SERVICE_WORKER_VERSION = "v20260504";
+const CACHE_NAME = `nyan-note-static-${SERVICE_WORKER_VERSION}`;
 const STATIC_ASSETS = ["./", "./index.html", "./manifest.json", "./styles.css", "./public/icons/cat-icon.svg"];
 
 self.addEventListener("install", (event) => {
