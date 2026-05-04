@@ -2163,7 +2163,7 @@ function CatHealthApp() {
         {tab === "stats" && (
           <StatsView firestoreGateway={firestoreGateway} authOwnerUid={authOwnerUid} authStatus={firebaseDebug.authStatus} />
         )}
-        {tab === "support" && <SupportView loginEmail={firestoreGateway.auth?.currentUser?.email || "未ログイン"} />}
+        {tab === "support" && <SupportView authUserInfo={authUserInfo} loginEmail={firestoreGateway.auth?.currentUser?.email || "未ログイン"} />}
       </main>
 
       <BottomNav tab={tab} setTab={setTab} />
@@ -2592,7 +2592,7 @@ function HomeView({
       <div style={{ ...cardStyle, padding: "14px 14px 16px" }}>
         <div style={{ fontSize: 11, color: palette.inkSoft, letterSpacing: "0.05em", marginBottom: 6 }}>ログイン情報</div>
         <div style={{ fontSize: 13, color: palette.ink }}>{authUserInfo.status}</div>
-        {authUserInfo.userLabel ? <div style={{ marginTop: 4, fontSize: 11, color: palette.inkSoft }}>{authUserInfo.userLabel}</div> : null}
+        {AUTH_DEBUG_ENABLED && authUserInfo.userLabel ? <div style={{ marginTop: 4, fontSize: 11, color: palette.inkSoft }}>debug: {authUserInfo.userLabel}</div> : null}
         <div style={{ marginTop: 10 }}>
           <MiniButton onClick={onGoogleLogin} disabled={isGoogleLoginInProgress}>
             {isGoogleLoginInProgress ? "Googleログイン処理中..." : "Googleでログイン"}
@@ -2600,73 +2600,8 @@ function HomeView({
         </div>
       </div>
       <div style={{ ...cardStyle, padding: "14px 14px 16px" }}>
-        <div style={{ fontSize: 11, color: palette.inkSoft, letterSpacing: "0.05em", marginBottom: 4 }}>
-          プライバシー・利用上の注意
-        </div>
-        <ul style={{ margin: 0, paddingLeft: 16, display: "grid", gap: 4 }}>
-          <li style={{ fontSize: 12, color: palette.ink, lineHeight: 1.5 }}>
-            通常、日次記録は「みんな」画面には公開されません。
-          </li>
-          <li style={{ fontSize: 12, color: palette.ink, lineHeight: 1.5 }}>
-            「今日の記録をみんなに共有する」をONにした場合のみ、ごはん量・飲水量・おやつ・うんち回数・おしっこ回数が公開プロフィールカード内に表示されます。
-          </li>
-          <li style={{ fontSize: 12, color: palette.ink, lineHeight: 1.5 }}>
-            Googleログインを使うと、端末変更や再読み込み後もデータを復元しやすくなります。Googleログインしても、許可なく記録が公開されることはありません。
-          </li>
-          <li style={{ fontSize: 12, color: palette.ink, lineHeight: 1.5 }}>
-            メモ、写真、体重は「みんな」画面には公開されません。猫ちゃんの名前や地域の表示はプロフィール公開設定に従います。
-          </li>
-          <li style={{ fontSize: 12, color: palette.ink, lineHeight: 1.5 }}>
-            共有をOFFにして保存すると、共有されていた今日の記録は「みんな」画面から削除されます。このアプリは診断や治療を目的としたものではありません。
-          </li>
-        </ul>
-        <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <a
-              href="./privacy.html"
-              style={{
-                display: "inline-block",
-                fontSize: 11,
-                color: palette.inkSoft,
-                textDecoration: "none",
-                fontWeight: 500,
-                lineHeight: 1.4,
-              }}
-            >
-              プライバシーポリシーを見る
-            </a>
-            <a
-              href="./terms.html"
-              style={{
-                display: "inline-block",
-                fontSize: 11,
-                color: palette.inkSoft,
-                textDecoration: "none",
-                fontWeight: 500,
-                lineHeight: 1.4,
-              }}
-            >
-              利用規約を見る
-            </a>
-          </div>
-          <a
-            href="https://forms.gle/xH5jHSFsTLmWsDLw9"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              display: "inline-block",
-              fontSize: 11,
-              color: palette.inkSoft,
-              textDecoration: "none",
-              fontWeight: 500,
-              lineHeight: 1.4,
-            }}
-          >
-            ご意見・不具合報告はこちら
-          </a>
-        </div>
-        <div style={{ marginTop: 10, fontSize: 10.5, color: "#8C7F72", lineHeight: 1.45 }}>
-          ※現在β版です。表示や機能は予告なく変更される場合があります。
+        <div style={{ fontSize: 12, color: palette.ink, lineHeight: 1.6 }}>
+          共有ONにした今日の記録だけが「みんな」画面に表示されます。詳しくは「設定」から確認できます。
         </div>
       </div>
       
@@ -3637,7 +3572,7 @@ function StatsBarCard({ title, rows, emptyText, note = "" }) {
 }
 
 
-function SupportView({ loginEmail }) {
+function SupportView({ authUserInfo, loginEmail }) {
   const contactEmail = "ymsh4649@gmail.com";
   return (
     <div style={{ display: "grid", gap: 12 }}>
@@ -3649,7 +3584,8 @@ function SupportView({ loginEmail }) {
         <div style={{ fontSize: 13, color: palette.ink, display: "grid", gap: 6 }}>
           <div><strong>アプリ名：</strong>にゃん・ノート</div>
           <div><strong>バージョン：</strong>v0.2 beta</div>
-          <div><strong>ログイン中メール：</strong>{loginEmail}</div>
+          <div><strong>ログイン状態：</strong>{authUserInfo?.status || "未ログイン"}</div>
+          {AUTH_DEBUG_ENABLED ? <div><strong>ログイン中メール（debug）：</strong>{loginEmail}</div> : null}
         </div>
       </div>
 
