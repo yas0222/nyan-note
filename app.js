@@ -22,6 +22,9 @@ const STORAGE_KEY = "nyan-note-prototype-v1";
 const ANONYMOUS_OWNER_ID_KEY = "nyan-note-anonymous-owner-id-v1";
 const PRIVACY_ACCEPTED_KEY = "nyan-note-privacy-accepted-v1";
 const SHOW_DEV_MENU_IN_PUBLIC = false;
+const APP_VERSION = "v0.3 mini";
+const SERVICE_WORKER_VERSION = "v20260504";
+const SERVICE_WORKER_CACHE_NAME = `nyan-note-static-${SERVICE_WORKER_VERSION}`;
 const AUTH_DEBUG_ENABLED = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("authDebug") === "1";
 
 function safeLocalStorageGet(key) {
@@ -3748,9 +3751,12 @@ function SupportView({ authUserInfo, loginEmail }) {
         </div>
         <div style={{ fontSize: 13, color: palette.ink, display: "grid", gap: 6 }}>
           <div><strong>アプリ名：</strong>にゃん・ノート</div>
-          <div><strong>バージョン：</strong>v0.2 beta</div>
+          <div><strong>バージョン：</strong>{APP_VERSION}</div>
           <div><strong>ログイン状態：</strong>{authUserInfo?.status || "未ログイン"}</div>
           {AUTH_DEBUG_ENABLED ? <div><strong>ログイン中メール（debug）：</strong>{loginEmail}</div> : null}
+          {AUTH_DEBUG_ENABLED ? <div><strong>appVersion（debug）：</strong>{APP_VERSION}</div> : null}
+          {AUTH_DEBUG_ENABLED ? <div><strong>serviceWorkerVersion（debug）：</strong>{SERVICE_WORKER_VERSION}</div> : null}
+          {AUTH_DEBUG_ENABLED ? <div><strong>cacheName（debug）：</strong>{SERVICE_WORKER_CACHE_NAME}</div> : null}
         </div>
       </div>
 
