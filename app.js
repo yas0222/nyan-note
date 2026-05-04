@@ -2161,15 +2161,7 @@ function CatHealthApp() {
           />
         )}
         {tab === "stats" && (
-          <StatsView
-            firestoreGateway={firestoreGateway}
-            authOwnerUid={authOwnerUid}
-            authStatus={firebaseDebug.authStatus}
-            cats={data.cats}
-            logsByCat={data.logsByCat}
-            selectedCatId={selectedCatId}
-            onPickCat={(catId) => setSelectedCatId(catId)}
-          />
+          <StatsView firestoreGateway={firestoreGateway} authOwnerUid={authOwnerUid} authStatus={firebaseDebug.authStatus} />
         )}
         {tab === "support" && <SupportView authUserInfo={authUserInfo} loginEmail={firestoreGateway.auth?.currentUser?.email || "未ログイン"} />}
       </main>
@@ -3406,7 +3398,7 @@ function CommunityView({ firestoreGateway, authOwnerUid, authStatus, onUpdatePub
   );
 }
 
-function StatsView({ firestoreGateway, authOwnerUid, authStatus, reloadToken, cats, logsByCat, selectedCatId, onPickCat }) {
+function StatsView({ firestoreGateway, authOwnerUid, authStatus, reloadToken }) {
   const HIDDEN_PREFECTURE_LABEL = "非公開";
   const [publicCats, setPublicCats] = useState([]);
   const [loadState, setLoadState] = useState("idle");
@@ -3513,109 +3505,10 @@ function StatsView({ firestoreGateway, authOwnerUid, authStatus, reloadToken, ca
   }, [publicCats]);
 
   const hasStats = stats.totalCount > 0;
-  const selectedCat = cats.find((cat) => String(cat.id) === String(selectedCatId)) || cats[0] || null;
-  const selectedLogs = selectedCat ? logsByCat[selectedCat.id] || [] : [];
-
-  const sevenDayReview = useMemo(() => {
-    if (!selectedCat) return null;
-    const end = new Date(`${todayKey()}T00:00:00`);
-    const dateKeys = Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(end);
-      d.setDate(end.getDate() - (6 - i));
-      return d.toISOString().slice(0, 10);
-    });
-    const logMap = new Map(selectedLogs.map((log) => [log.date, log]));
-    const rows = dateKeys.map((date) => {
-      const log = logMap.get(date);
-      return {
-        date,
-        foodTotal: Number.isFinite(Number(log?.foodTotal)) ? Number(log.foodTotal) : null,
-        waterTotal: Number.isFinite(Number(log?.waterTotal)) ? Number(log.waterTotal) : null,
-        poop: Number.isFinite(Number(log?.poop)) ? Number(log.poop) : null,
-        pee: Number.isFinite(Number(log?.pee)) ? Number(log.pee) : null,
-        weightKg: Number.isFinite(Number(log?.weightKg)) ? Number(log.weightKg) : null,
-      };
-    });
-    const avg = (key) => {
-      const values = rows.map((row) => row[key]).filter((value) => Number.isFinite(value));
-      if (values.length === 0) return null;
-      return values.reduce((sum, value) => sum + value, 0) / values.length;
-    };
-    const today = rows[rows.length - 1] || null;
-    return {
-      rows,
-      metrics: [
-        { key: "foodTotal", label: "ごはん量", unit: "g", icon: "🍚", avg: avg("foodTotal"), today: today?.foodTotal ?? null },
-        { key: "waterTotal", label: "飲水量", unit: "ml", icon: "💧", avg: avg("waterTotal"), today: today?.waterTotal ?? null },
-        { key: "poop", label: "うんち回数", unit: "回", icon: "💩", avg: avg("poop"), today: today?.poop ?? null },
-        { key: "pee", label: "おしっこ回数", unit: "回", icon: "🚽", avg: avg("pee"), today: today?.pee ?? null },
-        { key: "weightKg", label: "体重", unit: "kg", icon: "⚖️", avg: avg("weightKg"), today: today?.weightKg ?? null },
-      ],
-    };
-  }, [selectedCat, selectedLogs]);
-
-  const renderFriendlyComment = (today, avg) => {
-    if (!Number.isFinite(today) || !Number.isFinite(avg)) return "記録がそろうと、いつもとの違いが見えてきます。";
-    const diff = today - avg;
-    if (Math.abs(diff) < 0.01) return "いつもと同じくらいの記録です。";
-    if (diff > 0) return "いつもより多めの記録です。";
-    return "いつもより少なめかも。様子を見てあげてもよさそうです。";
-  };
 
   return (
     <div>
       <SectionLabel left="統計" right={hasStats ? `${stats.totalCount}匹` : "🌏"} />
-
-      <div style={cardStyle}>
-        <Label>選択中の猫ちゃんの7日間ふりかえり</Label>
-        {cats.length > 0 ? (
-          <>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, margin: "8px 0 12px" }}>
-              {cats.map((cat) => {
-                const active = selectedCat && String(selectedCat.id) === String(cat.id);
-                return (
-                  <button
-                    key={`stats-cat-${cat.id}`}
-                    onClick={() => onPickCat(cat.id)}
-                    style={{
-                      border: `1px solid ${active ? palette.accent : palette.line}`,
-                      background: active ? "#FFF7EF" : "#fff",
-                      color: palette.ink,
-                      borderRadius: 999,
-                      padding: "6px 10px",
-                      fontSize: 12,
-                      cursor: "pointer",
-                    }}
-                  >
-                    {cat.name}
-                  </button>
-                );
-              })}
-            </div>
-
-            {sevenDayReview && (
-              <div style={{ display: "grid", gap: 10 }}>
-                {sevenDayReview.metrics.map((metric) => (
-                  <div key={metric.key} style={{ border: `1px dashed ${palette.line}`, borderRadius: 10, padding: "10px 12px", background: "#FFFCF8" }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                      <div style={{ fontWeight: 700 }}>{metric.icon} {metric.label}</div>
-                      <div style={{ fontSize: 12, color: palette.inkSoft }}>
-                        7日平均 {metric.avg == null ? "-" : `${metric.key === "weightKg" ? metric.avg.toFixed(1) : Math.round(metric.avg * 10) / 10}${metric.unit}`}
-                      </div>
-                    </div>
-                    <div style={{ marginTop: 4, fontSize: 13 }}>
-                      今日: {metric.today == null ? "記録なし" : `${metric.key === "weightKg" ? metric.today.toFixed(1) : metric.today}${metric.unit}`}
-                    </div>
-                    <div style={{ marginTop: 6, fontSize: 12, color: palette.inkSoft }}>{renderFriendlyComment(metric.today, metric.avg)}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
-        ) : (
-          <div style={{ fontSize: 12, color: palette.inkSoft }}>ホームタブで猫プロフィールを追加すると、ここに7日間の記録が表示されます。</div>
-        )}
-      </div>
 
       {loadState === "auth-checking" && <div style={{ ...cardStyle, fontSize: 12, color: palette.inkSoft }}>認証確認中…</div>}
       {loadState === "loading" && isLoading && <div style={{ ...cardStyle, fontSize: 12, color: palette.inkSoft }}>読み込み中…</div>}
