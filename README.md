@@ -56,6 +56,10 @@ v0.1 では以下が安定動作します。
 - 市区町村フィルター
 - Google ログイン / Apple ログイン
 
+## ドキュメント
+
+- [Google Play 先行ロードマップ](docs/google-play-roadmap.md)
+
 ## ローカル実行
 
 ```bash
