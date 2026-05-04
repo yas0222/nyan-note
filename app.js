@@ -3533,6 +3533,7 @@ function StatsView({ firestoreGateway, authOwnerUid, authStatus, reloadToken, ca
         waterTotal: Number.isFinite(Number(log?.waterTotal)) ? Number(log.waterTotal) : null,
         poop: Number.isFinite(Number(log?.poop)) ? Number(log.poop) : null,
         pee: Number.isFinite(Number(log?.pee)) ? Number(log.pee) : null,
+        weightKg: Number.isFinite(Number(log?.weightKg)) ? Number(log.weightKg) : null,
       };
     });
     const avg = (key) => {
@@ -3548,6 +3549,7 @@ function StatsView({ firestoreGateway, authOwnerUid, authStatus, reloadToken, ca
         { key: "waterTotal", label: "飲水量", unit: "ml", icon: "💧", avg: avg("waterTotal"), today: today?.waterTotal ?? null },
         { key: "poop", label: "うんち回数", unit: "回", icon: "💩", avg: avg("poop"), today: today?.poop ?? null },
         { key: "pee", label: "おしっこ回数", unit: "回", icon: "🚽", avg: avg("pee"), today: today?.pee ?? null },
+        { key: "weightKg", label: "体重", unit: "kg", icon: "⚖️", avg: avg("weightKg"), today: today?.weightKg ?? null },
       ],
     };
   }, [selectedCat, selectedLogs]);
@@ -3598,43 +3600,15 @@ function StatsView({ firestoreGateway, authOwnerUid, authStatus, reloadToken, ca
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
                       <div style={{ fontWeight: 700 }}>{metric.icon} {metric.label}</div>
                       <div style={{ fontSize: 12, color: palette.inkSoft }}>
-                        7日平均 {metric.avg == null ? "-" : `${Math.round(metric.avg * 10) / 10}${metric.unit}`}
+                        7日平均 {metric.avg == null ? "-" : `${metric.key === "weightKg" ? metric.avg.toFixed(1) : Math.round(metric.avg * 10) / 10}${metric.unit}`}
                       </div>
                     </div>
                     <div style={{ marginTop: 4, fontSize: 13 }}>
-                      今日: {metric.today == null ? "記録なし" : `${metric.today}${metric.unit}`}
+                      今日: {metric.today == null ? "記録なし" : `${metric.key === "weightKg" ? metric.today.toFixed(1) : metric.today}${metric.unit}`}
                     </div>
                     <div style={{ marginTop: 6, fontSize: 12, color: palette.inkSoft }}>{renderFriendlyComment(metric.today, metric.avg)}</div>
                   </div>
                 ))}
-              </div>
-
-              <div style={{ border: `1px solid ${palette.line}`, borderRadius: 12, padding: 10, background: "#FFFFFF" }}>
-                <div style={{ fontSize: 12, color: palette.inkSoft, marginBottom: 8 }}>直近7日間の記録</div>
-                <div style={{ display: "grid", gap: 6 }}>
-                  {sevenDayReview.rows.map((row) => (
-                    <div
-                      key={`seven-day-row-${row.date}`}
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "88px 1fr",
-                        gap: 8,
-                        alignItems: "center",
-                        background: row.date === todayKey() ? "#FFF7EF" : "#FFFCF8",
-                        borderRadius: 8,
-                        padding: "6px 8px",
-                      }}
-                    >
-                      <div style={{ fontSize: 12, color: palette.inkSoft }}>{row.date.slice(5).replace("-", "/")}</div>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, fontSize: 12 }}>
-                        <span>🍚 {row.foodTotal == null ? "-" : `${row.foodTotal}g`}</span>
-                        <span>💧 {row.waterTotal == null ? "-" : `${row.waterTotal}ml`}</span>
-                        <span>💩 {row.poop == null ? "-" : `${row.poop}回`}</span>
-                        <span>🚽 {row.pee == null ? "-" : `${row.pee}回`}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
               </div>
             )}
           </>
