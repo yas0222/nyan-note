@@ -1,0 +1,44 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwnerCreate() {
+      return isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
+    }
+
+    function isOwnerExisting() {
+      return isSignedIn() && resource.data.ownerUid == request.auth.uid;
+    }
+
+    match /cats/{docId} {
+      allow read: if true;
+      allow create: if isOwnerCreate();
+      allow update, delete: if isOwnerExisting();
+    }
+
+    match /records/{docId} {
+      allow read: if true;
+      allow create: if isOwnerCreate();
+      allow update, delete: if isOwnerExisting();
+    }
+
+    match /publicCats/{docId} {
+      allow read: if true;
+      allow create: if isOwnerCreate();
+      allow update, delete: if isOwnerExisting();
+    }
+
+    match /publicFoodRecords/{docId} {
+      allow read: if true;
+      allow create: if isOwnerCreate();
+      allow update, delete: if isOwnerExisting();
+    }
+
+    match /debug/{docId} {
+      allow read, write: if isSignedIn();
+    }
+  }
+}

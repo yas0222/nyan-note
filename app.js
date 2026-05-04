@@ -1371,15 +1371,80 @@ function CatHealthApp() {
     }
   };
 
+  const deleteQueryInBatches = async (query, limit = 500) => {
+    let deleted = 0;
+    while (true) {
+      const snap = await query.limit(limit).get();
+      if (snap.empty) break;
+      const batch = firestoreGateway.db.batch();
+      snap.docs.forEach((doc) => {
+        batch.delete(doc.ref);
+      });
+      await batch.commit();
+      deleted += snap.size;
+      if (snap.size < limit) break;
+    }
+    return deleted;
+  };
+
   const deleteCatFromCloud = async (catId) => {
     const target = data.cats.find((cat) => cat.id === catId);
-    if (!firestoreGateway.enabled || !firestoreGateway.db) return;
+    if (!firestoreGateway.enabled || !firestoreGateway.db || !target) return;
     try {
-      await firestoreGateway.db.collection("cats").doc(String(catId)).delete();
-      if (target?.publicId) {
-        await firestoreGateway.db.collection("publicCats").doc(String(target.publicId)).delete();
-        setFirebaseDebug((prev) => ({ ...prev, lastPublicCatSaveResult: "公開プロフィール: 削除済み" }));
+      const currentUserUid = await ensureAuthenticatedUid();
+      if (!currentUserUid) return;
+
+      const targetCatId = String(target.id || catId);
+      const targetPublicId = String(target.publicId || "");
+      const targetCloudId = String(target.cloudId || "");
+
+      const catsRef = firestoreGateway.db.collection("cats");
+      const publicCatsRef = firestoreGateway.db.collection("publicCats");
+      const publicFoodRef = firestoreGateway.db.collection("publicFoodRecords");
+
+      if (targetCloudId) {
+        const catDoc = await catsRef.doc(targetCloudId).get();
+        if (catDoc.exists && String(catDoc.data()?.ownerUid || "") === currentUserUid) {
+          await catsRef.doc(targetCloudId).delete();
+        }
       }
+
+      if (targetPublicId) {
+        const publicCatDoc = await publicCatsRef.doc(targetPublicId).get();
+        if (publicCatDoc.exists && String(publicCatDoc.data()?.ownerUid || "") === currentUserUid) {
+          await publicCatsRef.doc(targetPublicId).delete();
+        }
+      }
+
+      const publicRecordQueries = [
+        publicFoodRef.where("ownerUid", "==", currentUserUid).where("publicId", "==", targetPublicId),
+        publicFoodRef.where("ownerUid", "==", currentUserUid).where("cloudId", "==", targetCloudId),
+        publicFoodRef.where("ownerUid", "==", currentUserUid).where("sourceCatId", "==", targetCatId),
+        publicFoodRef.where("ownerUid", "==", currentUserUid).where("catId", "==", targetCatId),
+      ].filter((query, idx) => [targetPublicId, targetCloudId, targetCatId, targetCatId][idx]);
+
+      const uniquePublicRecordRefs = new Map();
+      for (const query of publicRecordQueries) {
+        const snap = await query.get();
+        snap.docs.forEach((doc) => uniquePublicRecordRefs.set(doc.id, doc.ref));
+      }
+      const publicRecordRefs = Array.from(uniquePublicRecordRefs.values());
+      for (let i = 0; i < publicRecordRefs.length; i += 500) {
+        const batch = firestoreGateway.db.batch();
+        publicRecordRefs.slice(i, i + 500).forEach((ref) => batch.delete(ref));
+        await batch.commit();
+      }
+
+      if (targetCatId) {
+        await deleteQueryInBatches(publicCatsRef.where("ownerUid", "==", currentUserUid).where("sourceCatId", "==", targetCatId));
+        await deleteQueryInBatches(catsRef.where("ownerUid", "==", currentUserUid).where("id", "==", targetCatId));
+      }
+      if (targetCloudId) {
+        await deleteQueryInBatches(publicCatsRef.where("ownerUid", "==", currentUserUid).where("cloudId", "==", targetCloudId));
+      }
+
+      setPublicCatsReloadToken((prev) => prev + 1);
+      setFirebaseDebug((prev) => ({ ...prev, lastPublicCatSaveResult: "公開プロフィール: 削除済み" }));
       setFirebaseStatus("Firebase保存可能");
     } catch (_e) {
       setFirebaseStatus("Firebase保存エラー");
@@ -1786,7 +1851,7 @@ function CatHealthApp() {
     return { ok: true };
   };
 
-  const deleteCat = (catId) => {
+  const deleteCat = async (catId) => {
     if (!window.confirm("この猫プロフィールを削除しますか？\n関連する記録も削除されます。")) return;
     const relatedLogs = data.logsByCat[catId] || [];
     setData((prev) => {
@@ -1795,8 +1860,8 @@ function CatHealthApp() {
       delete nextLogs[catId];
       return { ...prev, cats: nextCats, logsByCat: nextLogs };
     });
-    relatedLogs.forEach((log) => deleteRecordFromCloud(catId, log.date));
-    deleteCatFromCloud(catId);
+    await Promise.all(relatedLogs.map((log) => deleteRecordFromCloud(catId, log.date)));
+    await deleteCatFromCloud(catId);
     setMessage("猫プロフィールを削除しました。");
   };
 
