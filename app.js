@@ -11,6 +11,11 @@ import {
   Cookie,
   Droplet,
   Utensils,
+  Settings,
+  CircleHelp,
+  ShieldCheck,
+  FileText,
+  Mail,
 } from "lucide-react";
 
 const STORAGE_KEY = "nyan-note-prototype-v1";
@@ -2158,6 +2163,7 @@ function CatHealthApp() {
         {tab === "stats" && (
           <StatsView firestoreGateway={firestoreGateway} authOwnerUid={authOwnerUid} authStatus={firebaseDebug.authStatus} />
         )}
+        {tab === "support" && <SupportView loginEmail={firestoreGateway.auth?.currentUser?.email || "未ログイン"} />}
       </main>
 
       <BottomNav tab={tab} setTab={setTab} />
@@ -3630,6 +3636,54 @@ function StatsBarCard({ title, rows, emptyText, note = "" }) {
   );
 }
 
+
+function SupportView({ loginEmail }) {
+  const contactEmail = "ymsh4649@gmail.com";
+  return (
+    <div style={{ display: "grid", gap: 12 }}>
+      <div style={cardStyle}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+          <Settings size={18} color={palette.accent} />
+          <div style={{ fontFamily: fontDisplay, fontSize: 18, fontWeight: 700 }}>設定・サポート</div>
+        </div>
+        <div style={{ fontSize: 13, color: palette.ink, display: "grid", gap: 6 }}>
+          <div><strong>アプリ名：</strong>にゃん・ノート</div>
+          <div><strong>バージョン：</strong>v0.2 beta</div>
+          <div><strong>ログイン中メール：</strong>{loginEmail}</div>
+        </div>
+      </div>
+
+      <div style={cardStyle}>
+        <Label>ポリシーと規約</Label>
+        <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+          <a href="./privacy.html" style={{ color: palette.accent, fontWeight: 700, textDecoration: "underline", display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <ShieldCheck size={16} />プライバシーポリシー
+          </a>
+          <a href="./terms.html" style={{ color: palette.accent, fontWeight: 700, textDecoration: "underline", display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <FileText size={16} />利用規約
+          </a>
+        </div>
+      </div>
+
+      <div style={cardStyle}>
+        <Label>問い合わせ・フィードバック</Label>
+        <div style={{ fontSize: 13, color: palette.ink, display: "grid", gap: 8, marginTop: 8 }}>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><Mail size={16} color={palette.accent} /><strong>問い合わせ先：</strong><a href={`mailto:${contactEmail}`} style={{ color: palette.accent }}>{contactEmail}</a></div>
+          <div>不具合報告・ご意見・データ削除依頼は、問い合わせ先までご連絡ください。</div>
+          <div>削除依頼の際は、利用時期、猫の表示名、ログイン方法など、対象を特定できる情報をお知らせください。</div>
+        </div>
+      </div>
+
+      <div style={{ ...cardStyle, background: "#FFF8EF" }}>
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 700, marginBottom: 8 }}><CircleHelp size={16} color={palette.accent} />ご利用にあたって</div>
+        <div style={{ fontSize: 12, color: palette.inkSoft, lineHeight: 1.8 }}>
+          にゃん・ノートは日々の記録をサポートするアプリです。診断・治療・緊急時判断を目的としたものではありません。
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function BottomNav({ tab, setTab }) {
   const items = [
     { key: "home", icon: Home, label: "ホーム" },
@@ -3637,6 +3691,7 @@ function BottomNav({ tab, setTab }) {
     { key: "log", icon: PlusCircle, label: "記録", primary: true },
     { key: "community", icon: Globe, label: "みんな" },
     { key: "stats", icon: BarChart3, label: "統計" },
+    { key: "support", icon: Settings, label: "設定" },
   ];
 
   return (
