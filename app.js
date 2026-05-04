@@ -244,51 +244,6 @@ function getFirestoreIndexCreateUrl(message) {
   return match ? match[0] : "";
 }
 
-function toFiniteNumber(value) {
-  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (!trimmed) return 0;
-    const parsed = Number(trimmed);
-    return Number.isFinite(parsed) ? parsed : 0;
-  }
-  return 0;
-}
-
-function buildTodayReflection(selectedCat, logsByCat, todayLogByCat) {
-  if (!selectedCat || !selectedCat.id) return "今日の記録を保存すると、ここにふりかえりが表示されます。";
-  const catLogs = Array.isArray(logsByCat?.[selectedCat.id]) ? logsByCat[selectedCat.id] : [];
-  const todayLog = todayLogByCat?.[selectedCat.id] || null;
-  if (!todayLog) return "今日の記録を保存すると、ここにふりかえりが表示されます。";
-  const today = new Date();
-  const sevenDaysAgo = new Date(today);
-  sevenDaysAgo.setDate(today.getDate() - 6);
-  const startKey = toLocalDateKey(sevenDaysAgo);
-  const endKey = toLocalDateKey(today);
-  const recentLogs = catLogs.filter((row) => row && typeof row.date === "string" && row.date >= startKey && row.date <= endKey);
-  const baselineLogs = recentLogs.filter((row) => row && row.id !== todayLog.id);
-  const averageOf = (key) => {
-    if (!baselineLogs.length) return null;
-    const total = baselineLogs.reduce((sum, row) => sum + toFiniteNumber(row?.[key]), 0);
-    return total / baselineLogs.length;
-  };
-  const checks = [
-    { key: "foodAmount", up: "今日はいつもよりごはん多めの記録です", down: "今日はいつもよりごはん少なめかも" },
-    { key: "waterAmount", up: "今日はいつもよりお水をよく飲んでいます", down: "今日はいつもよりお水は少なめかも" },
-    { key: "poopCount", up: "今日はうんち回数がいつもより多めの記録です", down: "今日はうんち回数がいつもより少なめかも" },
-    { key: "peeCount", up: "今日はおしっこ回数がいつもより多めの記録です", down: "今日はおしっこ回数がいつもより少なめかも" },
-  ];
-  for (const check of checks) {
-    const todayValue = toFiniteNumber(todayLog?.[check.key]);
-    const avg = averageOf(check.key);
-    if (avg === null || avg <= 0) continue;
-    if (todayValue >= avg * 1.2) return check.up;
-    if (todayValue <= avg * 0.8) return check.down;
-  }
-  if (baselineLogs.length) return "トイレ記録はいつもと近い感じです";
-  return "今日も記録できました。えらいです🐾";
-}
-
 function generatePublicId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return `pub-${crypto.randomUUID()}`;
@@ -2327,7 +2282,6 @@ function HomeView({
   });
   const selectedCat = cats.find((cat) => cat.id === selectedCatId) || cats[0] || null;
   const selectedCatTodayLog = selectedCat ? todayLogByCat[selectedCat.id] : null;
-  const reflectionMessage = buildTodayReflection(selectedCat, logsByCat, todayLogByCat);
 
   const resetForm = () => {
     setForm({
@@ -2421,10 +2375,6 @@ function HomeView({
           </div>
         </div>
       )}
-      <div style={{ ...cardStyle, padding: "14px 16px", background: "#FFFDF7" }}>
-        <div style={{ fontSize: 11, color: palette.inkSoft, letterSpacing: "0.05em" }}>今日のふりかえり</div>
-        <div style={{ marginTop: 8, fontSize: 14, color: palette.ink, lineHeight: 1.6 }}>{reflectionMessage}</div>
-      </div>
       {cats.map((cat, i) => {
         const hasToday = Boolean(todayLogByCat[cat.id]);
         const isSelected = selectedCat?.id === cat.id;
