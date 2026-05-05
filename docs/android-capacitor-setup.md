@@ -1,0 +1,105 @@
+# Android Capacitor 技術検証ガイド（にゃん・ノート）
+
+このドキュメントは **Google Play 先行の技術検証** として、既存の Web/PWA 版を壊さずに Android 実機起動確認まで進めるための手順です。
+
+> この時点では本番リリースは行いません。Play Console 登録・AAB アップロード・Production 申請は対象外です。
+
+## 1. 前提条件
+
+- Node.js（推奨: LTS 系）
+- npm
+- Android Studio（SDK / Emulator / Platform Tools を含む）
+- Java / Gradle 環境
+  - Android Studio 同梱 JDK を使う構成でも可
+
+## 2. セットアップ手順（リポジトリ直下）
+
+1. 依存関係をインストール
+
+```bash
+npm install
+```
+
+2. Capacitor 設定を確認
+
+- `appId`: `app.nyannote.prototype`
+- `appName`: `にゃん・ノート`
+- `webDir`: `.`（既存の静的ファイル配置を変更しない安全運用）
+
+3. Android プロジェクトを追加（初回のみ）
+
+```bash
+npm run cap:add:android
+```
+
+4. Web アセット同期
+
+```bash
+npm run cap:sync
+```
+
+## 3. Android プロジェクト作成手順
+
+1. 上記 `cap:add:android` 実行で `android/` が生成されます。
+2. 必要に応じて `npm run cap:sync` で最新の Web 側変更を Android 側へ反映します。
+3. Android Studio で開く
+
+```bash
+npm run cap:open:android
+```
+
+## 4. 実機またはエミュレーターでの起動手順
+
+1. Android Studio で `android/` プロジェクトを開く
+2. 実機を USB デバッグで接続、または Emulator を起動
+3. Android Studio で Run 実行（または CLI から下記）
+
+```bash
+npm run android:run
+```
+
+4. アプリ起動後、主要画面が表示されることを確認
+   - 一覧表示
+   - 記録作成
+   - 既存 PWA の基本導線が崩れていないこと
+
+## 5. AAB 作成までの大まかな流れ（今回は未実施）
+
+1. Android Studio で署名設定を準備
+2. `Build > Generate Signed Bundle / APK` から AAB 生成
+3. Play Console 内部テストへアップロード
+4. テスト端末で起動・認証・保存動作を確認
+
+> 今回は上記フローの「概念整理」のみで、アップロードや審査申請は行いません。
+
+## 6. Google ログイン確認ポイント（要注意）
+
+Capacitor（Android WebView）では、ブラウザ版と同じ挙動にならないケースがあります。
+
+- `signInWithPopup` は WebView で失敗・制限されることがある
+- 必要に応じて `signInWithRedirect` やネイティブ連携プラグインを検討
+- Firebase Authentication で Android 向け設定（SHA-1 / SHA-256、OAuth クライアント）を再確認
+- 認証後の戻り先とセッション維持を実機で確認
+
+## 7. Firebase Authentication の追加確認点
+
+- Authentication の承認済みドメイン
+  - GitHub Pages / Firebase Hosting に加え、必要に応じて運用ドメインを確認
+- Google プロバイダ有効化状態
+- OAuth 同意画面・クライアント設定
+  - Android パッケージ名と署名フィンガープリント対応
+- リダイレクトフロー利用時のハンドラ到達性
+
+## 8. 既存 PWA 版を壊さないための注意点
+
+- `index.html` / `app.js` / `manifest.json` / `sw.js` の既存仕様を変更しない
+- Firestore Rules・Firebase 設定・Firestore データには手を加えない
+- Capacitor は追加レイヤーとして扱い、Web 公開導線（GitHub Pages）は維持
+- Web 側を更新したら `npm run cap:sync` のみ追加で実施
+
+## 9. 技術検証の完了基準
+
+- 既存 Web/PWA 版が従来どおり表示・操作できる
+- Capacitor 最小構成（`package.json` / `capacitor.config.ts`）がある
+- Android Studio で開いて Run できる準備が整っている
+- 本ドキュメントに手順と注意点がまとまっている

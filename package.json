@@ -1,0 +1,19 @@
+{
+  "name": "nyan-note",
+  "version": "0.3.0-prototype",
+  "private": true,
+  "description": "にゃん・ノート Capacitor Android prototype",
+  "scripts": {
+    "serve": "python3 -m http.server 8000",
+    "cap:sync": "npx cap sync android",
+    "cap:add:android": "npx cap add android",
+    "cap:open:android": "npx cap open android",
+    "android:run": "npx cap run android"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^7.4.2",
+    "@capacitor/cli": "^7.4.2",
+    "@capacitor/core": "^7.4.2",
+    "typescript": "^5.9.3"
+  }
+}
