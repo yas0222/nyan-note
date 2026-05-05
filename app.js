@@ -28,11 +28,20 @@ const SERVICE_WORKER_CACHE_NAME = `nyan-note-static-${SERVICE_WORKER_VERSION}`;
 const AUTH_DEBUG_ENABLED = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("authDebug") === "1";
 const IS_CAPACITOR = typeof window !== "undefined" && Boolean(window.Capacitor);
 
+function getCapacitorPlatform() {
+  if (!IS_CAPACITOR) return "web";
+  try {
+    return typeof window.Capacitor.getPlatform === "function" ? window.Capacitor.getPlatform() : "unknown";
+  } catch (_e) {
+    return "unknown";
+  }
+}
+
 function isCapacitorNativePlatform() {
   if (!IS_CAPACITOR) return false;
   try {
     if (typeof window.Capacitor.isNativePlatform === "function") return window.Capacitor.isNativePlatform();
-    const platform = typeof window.Capacitor.getPlatform === "function" ? window.Capacitor.getPlatform() : "";
+    const platform = getCapacitorPlatform();
     return platform === "android" || platform === "ios";
   } catch (_e) {
     return false;
@@ -1067,28 +1076,33 @@ function CatHealthApp() {
       return;
     }
 
-    const provider = new window.firebase.auth.GoogleAuthProvider();
     const isNativeCapacitor = isCapacitorNativePlatform();
+    const platform = getCapacitorPlatform();
     setIsGoogleLoginInProgress(true);
 
     try {
-      const currentUser = firestoreGateway.auth.currentUser;
-      const providerIds = Array.isArray(currentUser?.providerData) ? currentUser.providerData.map((p) => p?.providerId).filter(Boolean) : [];
-      const shouldLinkAnonymous = Boolean(currentUser?.uid && currentUser?.isAnonymous && !providerIds.includes("google.com"));
-      let authAction = shouldLinkAnonymous ? "linkWithPopup" : "signInWithPopup";
-      setFirebaseDebug((prev) => ({ ...prev, lastAuthAction: authAction, lastAuthResult: "in-progress", popupFlowStep: `${authAction}:before`, lastAuthErrorCode: "", lastAuthErrorMessage: "" }));
-
       let result;
-      try {
+      let authAction = "";
+      if (isNativeCapacitor && platform === "android") {
+        const nativeAuthPlugin = window.Capacitor?.Plugins?.FirebaseAuthentication;
+        if (!nativeAuthPlugin?.signInWithGoogle) {
+          throw { code: "auth/native-plugin-missing", message: "ネイティブGoogleログインプラグインが見つかりません" };
+        }
+        authAction = "nativeSignInWithGoogle";
+        setFirebaseDebug((prev) => ({ ...prev, lastAuthAction: authAction, lastAuthResult: "in-progress", lastAuthErrorCode: "", lastAuthErrorMessage: "" }));
+        const nativeResult = await nativeAuthPlugin.signInWithGoogle();
+        const idToken = nativeResult?.credential?.idToken || nativeResult?.idToken || "";
+        if (!idToken) throw { code: "auth/id-token-missing", message: "GoogleのIDトークンを取得できませんでした" };
+        const credential = window.firebase.auth.GoogleAuthProvider.credential(idToken);
+        result = await firestoreGateway.auth.signInWithCredential(credential);
+      } else {
+        const provider = new window.firebase.auth.GoogleAuthProvider();
+        const currentUser = firestoreGateway.auth.currentUser;
+        const providerIds = Array.isArray(currentUser?.providerData) ? currentUser.providerData.map((p) => p?.providerId).filter(Boolean) : [];
+        const shouldLinkAnonymous = Boolean(currentUser?.uid && currentUser?.isAnonymous && !providerIds.includes("google.com"));
+        authAction = shouldLinkAnonymous ? "linkWithPopup" : "signInWithPopup";
+        setFirebaseDebug((prev) => ({ ...prev, lastAuthAction: authAction, lastAuthResult: "in-progress", popupFlowStep: `${authAction}:before`, lastAuthErrorCode: "", lastAuthErrorMessage: "" }));
         result = shouldLinkAnonymous ? await currentUser.linkWithPopup(provider) : await firestoreGateway.auth.signInWithPopup(provider);
-      } catch (popupError) {
-        if (!isNativeCapacitor) throw popupError;
-        authAction = "signInWithRedirect";
-        setFirebaseDebug((prev) => ({ ...prev, lastAuthAction: authAction, popupFlowStep: `${authAction}:before` }));
-        await firestoreGateway.auth.signInWithRedirect(provider);
-        setFirebaseDebug((prev) => ({ ...prev, lastAuthResult: "redirect-started", popupFlowStep: `${authAction}:started` }));
-        setMessage("Googleログインへ遷移しました。アカウント選択後にアプリへ戻ります。");
-        return;
       }
 
       const signedInUser = result?.user || firestoreGateway.auth.currentUser;
@@ -1675,34 +1689,7 @@ function CatHealthApp() {
       try {
         await firestoreGateway.auth.setPersistence(window.firebase.auth.Auth.Persistence.LOCAL);
         if (isCapacitorNativePlatform()) {
-          try {
-            setFirebaseDebug((prev) => ({ ...prev, lastAuthAction: "getRedirectResult", redirectResultChecked: "true" }));
-            const redirectResult = await firestoreGateway.auth.getRedirectResult();
-            if (redirectResult && redirectResult.user) {
-              setFirebaseDebug((prev) => ({
-                ...prev,
-                lastAuthResult: "redirect-success",
-                redirectResultSuccess: "true",
-                redirectResultErrorCode: "",
-                redirectResultErrorMessage: "",
-              }));
-              setMessage("Googleログイン（リダイレクト）から復帰しました。");
-            } else {
-              setFirebaseDebug((prev) => ({ ...prev, lastAuthResult: "redirect-empty", redirectResultSuccess: "false" }));
-            }
-          } catch (redirectError) {
-            const redirectDetails = getFirebaseErrorDetails(redirectError);
-            setFirebaseDebug((prev) => ({
-              ...prev,
-              lastAuthResult: "redirect-error",
-              redirectResultSuccess: "false",
-              redirectResultErrorCode: redirectDetails.code,
-              redirectResultErrorMessage: redirectDetails.message,
-              lastAuthErrorCode: redirectDetails.code,
-              lastAuthErrorMessage: redirectDetails.message,
-            }));
-            setMessage(`Googleログイン復帰時エラー: ${redirectDetails.code} ${redirectDetails.message}`);
-          }
+          setFirebaseDebug((prev) => ({ ...prev, redirectResultChecked: "skipped-native-auth" }));
         }
         await new Promise((resolve) => {
           const unsub = firestoreGateway.auth.onAuthStateChanged(async (user) => {
@@ -2124,7 +2111,9 @@ function CatHealthApp() {
         {AUTH_DEBUG_ENABLED && (
           <div style={{ ...cardStyle, background: "#F4F7FF", fontSize: 11, whiteSpace: "pre-wrap" }}>
             {[
-              `isCapacitor: ${String(isCapacitorNativePlatform())}`,
+              `isCapacitor: ${String(IS_CAPACITOR)}`,
+              `isNativePlatform: ${String(isCapacitorNativePlatform())}`,
+              `platform: ${getCapacitorPlatform()}`,
               `location.href: ${typeof window !== "undefined" ? window.location.href : ""}`,
               `location.origin: ${typeof window !== "undefined" ? window.location.origin : ""}`,
               `location.protocol: ${typeof window !== "undefined" ? window.location.protocol : ""}`,
@@ -2140,7 +2129,6 @@ function CatHealthApp() {
               `redirectResultErrorMessage: ${firebaseDebug.redirectResultErrorMessage || ""}`,
               `currentUserUid: ${firestoreGateway.auth?.currentUser?.uid || ""}`,
               `currentUserEmail: ${firestoreGateway.auth?.currentUser?.email || ""}`,
-              `email: ${firestoreGateway.auth?.currentUser?.email || ""}`,
               `lastAuthAction: ${firebaseDebug.lastAuthAction || ""}`,
               `lastAuthResult: ${firebaseDebug.lastAuthResult || ""}`,
               `lastAuthErrorCode: ${firebaseDebug.lastAuthErrorCode || ""}`,
