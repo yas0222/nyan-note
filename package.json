@@ -5,6 +5,8 @@
   "description": "にゃん・ノート Capacitor Android prototype",
   "scripts": {
     "serve": "python3 -m http.server 8000",
+    "prepare:android-web": "rm -rf www && mkdir -p www/public && cp index.html app.js styles.css manifest.json privacy.html terms.html rescue.html auth-test.html sw.js www/ && cp -R public/. www/public/",
+    "cap:sync:android": "npm run prepare:android-web && npx cap sync android",
     "cap:sync": "npx cap sync android",
     "cap:add:android": "npx cap add android",
     "cap:open:android": "npx cap open android",
