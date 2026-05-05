@@ -3,7 +3,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 const config: CapacitorConfig = {
   appId: 'app.nyannote.prototype',
   appName: 'にゃん・ノート',
-  webDir: '.',
+  webDir: 'www',
   server: {
     androidScheme: 'https'
   }
