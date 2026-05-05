@@ -17,5 +17,8 @@
     "@capacitor/cli": "^7.4.2",
     "@capacitor/core": "^7.4.2",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "@capacitor-firebase/authentication": "^7.3.0"
   }
 }
