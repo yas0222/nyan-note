@@ -21,6 +21,7 @@ import {
 const STORAGE_KEY = "nyan-note-prototype-v1";
 const ANONYMOUS_OWNER_ID_KEY = "nyan-note-anonymous-owner-id-v1";
 const PRIVACY_ACCEPTED_KEY = "nyan-note-privacy-accepted-v1";
+const EXPORT_LOCAL_STORAGE_KEYS = [STORAGE_KEY, ANONYMOUS_OWNER_ID_KEY, PRIVACY_ACCEPTED_KEY];
 const SHOW_DEV_MENU_IN_PUBLIC = false;
 const APP_VERSION = "v0.3 mini";
 const SERVICE_WORKER_VERSION = "v20260504";
@@ -63,6 +64,32 @@ function safeLocalStorageSet(key, value) {
   } catch (_e) {
     return false;
   }
+}
+
+function collectNyanNoteLocalStorage() {
+  return Object.fromEntries(
+    EXPORT_LOCAL_STORAGE_KEYS.flatMap((key) => {
+      const value = safeLocalStorageGet(key);
+      return value === null ? [] : [[key, value]];
+    }),
+  );
+}
+
+function buildExportFileName(date = new Date()) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return `nyan-note-export-${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}.json`;
+}
+
+function downloadJsonFile(json, fileName) {
+  const blob = new Blob([json], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 const PREFECTURES = [
   "北海道",
@@ -930,6 +957,22 @@ function CatHealthApp() {
 
   const [selectedCatId, setSelectedCatId] = useState(() => data.cats[0]?.id ?? null);
   const [message, setMessage] = useState("");
+  const [exportState, setExportState] = useState({
+    isExporting: false,
+    message: "",
+    fallbackJson: "",
+    fallbackFileName: "",
+    debug: {
+      exportMode: "未実行",
+      exportCatsCount: 0,
+      exportRecordsCount: 0,
+      exportPublicCatsCount: 0,
+      exportPublicFoodRecordsCount: 0,
+      exportResult: "未実行",
+      exportErrorCode: "",
+      exportErrorMessage: "",
+    },
+  });
   const [isGoogleLoginInProgress, setIsGoogleLoginInProgress] = useState(false);
   const [pendingMigrationNotice, setPendingMigrationNotice] = useState("");
   const [isUpdateAvailable, setIsUpdateAvailable] = useState(false);
@@ -1988,63 +2031,101 @@ function CatHealthApp() {
     setMessage("全データを初期化しました。");
   };
 
-  const exportData = () => {
+  const exportData = async () => {
+    if (exportState.isExporting) return;
+    setExportState((prev) => ({ ...prev, isExporting: true, message: "", fallbackJson: "", fallbackFileName: "" }));
+
+    let exportMode = "localOnly";
+    let counts = { cats: 0, records: 0, publicCats: 0, publicFoodRecords: 0 };
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      const parsed = raw ? JSON.parse(raw) : data;
+      const currentUser = firestoreGateway.auth?.currentUser || null;
+      const ownerUid = currentUser?.uid || "";
+      const collections = { cats: [], records: [], publicCats: [], publicFoodRecords: [] };
+
+      if (ownerUid) {
+        if (!firestoreGateway.db) throw { code: "export/firestore-unavailable", message: "Firestoreを利用できません" };
+        exportMode = "cloudAndLocal";
+        await Promise.all(
+          Object.keys(collections).map(async (collectionName) => {
+            const snapshot = await firestoreGateway.db.collection(collectionName).where("ownerUid", "==", ownerUid).get();
+            collections[collectionName] = snapshot.docs
+              .map((doc) => ({ id: doc.id, ...doc.data() }))
+              .filter((item) => item.ownerUid === ownerUid);
+          }),
+        );
+      }
+
+      counts = Object.fromEntries(Object.entries(collections).map(([key, rows]) => [key, rows.length]));
+      const exportedAt = new Date();
       const payload = {
         appName: "にゃん・ノート",
-        backupFormatVersion: "v1",
-        exportedAt: new Date().toISOString(),
-        cats: normalizeCats(parsed?.cats),
-        logsByCat: normalizeLogsByCat(parsed?.logsByCat),
-        nextIds: parsed?.nextIds || { cat: 100, log: 500 },
+        appVersion: APP_VERSION,
+        exportedAt: exportedAt.toISOString(),
+        ownerUid: ownerUid || null,
+        exportMode,
+        cats: collections.cats,
+        records: collections.records,
+        publicCats: collections.publicCats,
+        publicFoodRecords: collections.publicFoodRecords,
+        localStorage: collectNyanNoteLocalStorage(),
       };
-      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `nyan-note-backup-${toLocalDateKey(new Date())}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      setMessage("データを書き出しました ✓");
-    } catch (_e) {
-      setMessage("データの書き出しに失敗しました");
-    }
-  };
+      const json = JSON.stringify(payload, null, 2);
+      const fileName = buildExportFileName(exportedAt);
+      let fallbackJson = "";
 
-  const importBackupFile = async (file) => {
-    if (!file) return;
-    try {
-      const text = await file.text();
-      const parsed = JSON.parse(text);
-      const isValidBackup =
-        parsed &&
-        parsed.backupFormatVersion === "v1" &&
-        Array.isArray(parsed.cats) &&
-        parsed.logsByCat &&
-        typeof parsed.logsByCat === "object" &&
-        !Array.isArray(parsed.logsByCat) &&
-        parsed.nextIds;
-      if (!isValidBackup) {
-        setMessage("バックアップの読み込みに失敗しました");
-        return;
+      if (isCapacitorNativePlatform()) {
+        try {
+          const file = new File([json], fileName, { type: "application/json" });
+          const shareData = { files: [file], title: "にゃん・ノート データエクスポート" };
+          const canShareFile = typeof navigator.share === "function" && (!navigator.canShare || navigator.canShare(shareData));
+          if (canShareFile) {
+            await navigator.share({ files: [file], title: "にゃん・ノート データエクスポート" });
+          } else {
+            fallbackJson = json;
+          }
+        } catch (error) {
+          if (error?.name !== "AbortError") console.warn("[Export] Share API failed; showing copy fallback", error);
+          fallbackJson = json;
+        }
+      } else {
+        downloadJsonFile(json, fileName);
       }
-      const confirmed = window.confirm("現在の端末内データをバックアップ内容で置き換えます。よろしいですか？");
-      if (!confirmed) return;
-      const restoredData = {
-        cats: normalizeCats(parsed.cats),
-        logsByCat: normalizeLogsByCat(parsed.logsByCat),
-        nextIds: parsed.nextIds || { cat: 100, log: 500 },
-      };
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(restoredData));
-      setData(restoredData);
-      setSelectedCatId(restoredData.cats[0]?.id ?? null);
-      setMessage("バックアップを読み込みました ✓");
-    } catch (_e) {
-      setMessage("バックアップの読み込みに失敗しました");
+
+      setExportState((prev) => ({
+        ...prev,
+        isExporting: false,
+        message: "データを書き出しました",
+        fallbackJson,
+        fallbackFileName: fallbackJson ? fileName : "",
+        debug: {
+          exportMode,
+          exportCatsCount: counts.cats,
+          exportRecordsCount: counts.records,
+          exportPublicCatsCount: counts.publicCats,
+          exportPublicFoodRecordsCount: counts.publicFoodRecords,
+          exportResult: fallbackJson ? "copyFallback" : "success",
+          exportErrorCode: "",
+          exportErrorMessage: "",
+        },
+      }));
+    } catch (error) {
+      const details = getFirebaseErrorDetails(error);
+      console.error("[Export] データの書き出しに失敗", details, error);
+      setExportState((prev) => ({
+        ...prev,
+        isExporting: false,
+        message: "データの書き出しに失敗しました。時間をおいて再度お試しください。",
+        debug: {
+          exportMode,
+          exportCatsCount: counts.cats,
+          exportRecordsCount: counts.records,
+          exportPublicCatsCount: counts.publicCats,
+          exportPublicFoodRecordsCount: counts.publicFoodRecords,
+          exportResult: "error",
+          exportErrorCode: details.code,
+          exportErrorMessage: details.message,
+        },
+      }));
     }
   };
 
@@ -2283,7 +2364,14 @@ function CatHealthApp() {
         {tab === "stats" && (
           <StatsView firestoreGateway={firestoreGateway} authOwnerUid={authOwnerUid} authStatus={firebaseDebug.authStatus} />
         )}
-        {tab === "support" && <SupportView authUserInfo={authUserInfo} loginEmail={firestoreGateway.auth?.currentUser?.email || "未ログイン"} />}
+        {tab === "support" && (
+          <SupportView
+            authUserInfo={authUserInfo}
+            loginEmail={firestoreGateway.auth?.currentUser?.email || "未ログイン"}
+            exportState={exportState}
+            onExport={exportData}
+          />
+        )}
       </main>
 
       <BottomNav tab={tab} setTab={setTab} />
@@ -3695,8 +3783,18 @@ function StatsBarCard({ title, rows, emptyText, note = "" }) {
 }
 
 
-function SupportView({ authUserInfo, loginEmail }) {
+function SupportView({ authUserInfo, loginEmail, exportState, onExport }) {
   const contactEmail = "ymsh4649@gmail.com";
+  const [copyMessage, setCopyMessage] = useState("");
+
+  const copyExportJson = async () => {
+    try {
+      await navigator.clipboard.writeText(exportState.fallbackJson);
+      setCopyMessage("JSONをコピーしました");
+    } catch (_e) {
+      setCopyMessage("下のJSONを選択してコピーしてください");
+    }
+  };
   return (
     <div style={{ display: "grid", gap: 12 }}>
       <div style={cardStyle}>
@@ -3713,6 +3811,32 @@ function SupportView({ authUserInfo, loginEmail }) {
           {AUTH_DEBUG_ENABLED ? <div><strong>serviceWorkerVersion（debug）：</strong>{SERVICE_WORKER_VERSION}</div> : null}
           {AUTH_DEBUG_ENABLED ? <div><strong>cacheName（debug）：</strong>{SERVICE_WORKER_CACHE_NAME}</div> : null}
         </div>
+      </div>
+
+      <div style={cardStyle}>
+        <Label>データのエクスポート</Label>
+        <div style={{ fontSize: 12, color: palette.inkSoft, lineHeight: 1.7, margin: "8px 0 10px" }}>
+          ログイン中は本人のクラウドデータと、この端末のにゃん・ノート関連データをJSON形式で書き出します。未ログイン時は端末データのみを書き出します。
+        </div>
+        <button type="button" onClick={onExport} disabled={exportState.isExporting} style={{ ...exportButtonStyle, opacity: exportState.isExporting ? 0.6 : 1 }}>
+          {exportState.isExporting ? "書き出し中..." : "データを書き出す"}
+        </button>
+        {exportState.message ? <div role="status" style={{ fontSize: 13, color: palette.ink, marginTop: 10 }}>{exportState.message}</div> : null}
+        {exportState.fallbackJson ? (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 12, color: palette.inkSoft, marginBottom: 6 }}>
+              共有画面を利用できないため、{exportState.fallbackFileName} の内容をコピーして保存してください。
+            </div>
+            <button type="button" onClick={copyExportJson} style={exportSecondaryButtonStyle}>JSONをコピー</button>
+            {copyMessage ? <div role="status" style={{ fontSize: 12, marginTop: 6 }}>{copyMessage}</div> : null}
+            <textarea readOnly value={exportState.fallbackJson} aria-label="エクスポートJSON" style={{ width: "100%", minHeight: 180, marginTop: 8, boxSizing: "border-box", fontSize: 11 }} />
+          </div>
+        ) : null}
+        {AUTH_DEBUG_ENABLED ? (
+          <div style={{ fontSize: 11, color: palette.inkSoft, display: "grid", gap: 3, marginTop: 12 }}>
+            {Object.entries(exportState.debug).map(([key, value]) => <div key={key}><strong>{key}:</strong> {String(value)}</div>)}
+          </div>
+        ) : null}
       </div>
 
       <div style={cardStyle}>
@@ -3810,6 +3934,25 @@ const cardStyle = {
   padding: 18,
   marginBottom: 12,
   boxShadow: "0 2px 0 rgba(58,46,39,0.06), 0 8px 16px -8px rgba(58,46,39,0.15)",
+};
+
+const exportButtonStyle = {
+  border: "none",
+  borderRadius: 10,
+  background: palette.accent,
+  color: palette.cream,
+  padding: "10px 16px",
+  fontFamily: fontBody,
+  fontSize: 13,
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const exportSecondaryButtonStyle = {
+  ...exportButtonStyle,
+  border: `1px solid ${palette.accent}`,
+  background: palette.cream,
+  color: palette.accent,
 };
 
 const inputStyle = {
