@@ -22,6 +22,8 @@ const STORAGE_KEY = "nyan-note-prototype-v1";
 const ANONYMOUS_OWNER_ID_KEY = "nyan-note-anonymous-owner-id-v1";
 const PRIVACY_ACCEPTED_KEY = "nyan-note-privacy-accepted-v1";
 const EXPORT_LOCAL_STORAGE_KEYS = [STORAGE_KEY, ANONYMOUS_OWNER_ID_KEY, PRIVACY_ACCEPTED_KEY];
+const IMPORT_COLLECTION_NAMES = ["cats", "records", "publicCats", "publicFoodRecords"];
+const IMPORT_ERROR_MESSAGE = "読み込めないファイルです。にゃん・ノートのエクスポートJSONを選択してください。";
 const SHOW_DEV_MENU_IN_PUBLIC = false;
 const APP_VERSION = "v0.3 mini";
 const SERVICE_WORKER_VERSION = "v20260504";
@@ -90,6 +92,72 @@ function downloadJsonFile(json, fileName) {
   anchor.click();
   anchor.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function validateImportPayload(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("import/invalid-root");
+  if (value.appName !== "にゃん・ノート") throw new Error("import/invalid-app");
+  if (typeof value.exportedAt !== "string" || !Number.isFinite(Date.parse(value.exportedAt))) throw new Error("import/invalid-date");
+  for (const name of IMPORT_COLLECTION_NAMES) {
+    if (!Array.isArray(value[name]) || value[name].some((row) => !row || typeof row !== "object" || Array.isArray(row))) {
+      throw new Error(`import/invalid-${name}`);
+    }
+    if (value[name].some((row) => !String(row.id || "") || String(row.id).includes("/") || String(row.id).length > 1500)) {
+      throw new Error(`import/invalid-${name}-id`);
+    }
+  }
+  const localStorageData = value.localStorageData ?? value.localStorage;
+  if (localStorageData !== undefined) {
+    if (!localStorageData || typeof localStorageData !== "object" || Array.isArray(localStorageData)) throw new Error("import/invalid-local-storage");
+    for (const [key, storedValue] of Object.entries(localStorageData)) {
+      if (!EXPORT_LOCAL_STORAGE_KEYS.includes(key) || typeof storedValue !== "string") throw new Error("import/invalid-local-storage-entry");
+      if (key === STORAGE_KEY) mergeLocalAppData(null, storedValue);
+    }
+  }
+  return { ...value, localStorageData: localStorageData || {} };
+}
+
+function mergeLocalAppData(currentRaw, importedRaw) {
+  const current = currentRaw ? JSON.parse(currentRaw) : { cats: [], logsByCat: {}, nextIds: {} };
+  const imported = JSON.parse(importedRaw);
+  if (!imported || typeof imported !== "object" || !Array.isArray(imported.cats) || !imported.logsByCat || typeof imported.logsByCat !== "object") {
+    throw new Error("import/invalid-local-app-data");
+  }
+  const catMap = new Map();
+  for (const cat of imported.cats) if (cat && cat.id !== undefined) catMap.set(String(cat.id), cat);
+  for (const cat of Array.isArray(current.cats) ? current.cats : []) if (cat && cat.id !== undefined) catMap.set(String(cat.id), { ...catMap.get(String(cat.id)), ...cat });
+  const logsByCat = {};
+  const catKeys = new Set([...Object.keys(imported.logsByCat), ...Object.keys(current.logsByCat || {})]);
+  for (const catId of catKeys) {
+    const logMap = new Map();
+    for (const row of Array.isArray(imported.logsByCat[catId]) ? imported.logsByCat[catId] : []) {
+      if (row && row.id !== undefined) logMap.set(String(row.id), row);
+    }
+    for (const row of Array.isArray(current.logsByCat?.[catId]) ? current.logsByCat[catId] : []) {
+      if (row && row.id !== undefined) logMap.set(String(row.id), { ...logMap.get(String(row.id)), ...row });
+    }
+    logsByCat[catId] = Array.from(logMap.values());
+  }
+  return JSON.stringify({
+    ...imported,
+    ...current,
+    cats: Array.from(catMap.values()),
+    logsByCat,
+    nextIds: { ...(imported.nextIds || {}), ...(current.nextIds || {}) },
+  });
+}
+
+function restoreNyanNoteLocalStorage(localStorageData) {
+  for (const key of EXPORT_LOCAL_STORAGE_KEYS) {
+    const importedValue = localStorageData[key];
+    if (typeof importedValue !== "string") continue;
+    if (key === STORAGE_KEY) {
+      const merged = mergeLocalAppData(safeLocalStorageGet(key), importedValue);
+      if (!safeLocalStorageSet(key, merged)) throw new Error("import/local-storage-write-failed");
+    } else if (safeLocalStorageGet(key) === null && !safeLocalStorageSet(key, importedValue)) {
+      throw new Error("import/local-storage-write-failed");
+    }
+  }
 }
 const PREFECTURES = [
   "北海道",
@@ -971,6 +1039,22 @@ function CatHealthApp() {
       exportResult: "未実行",
       exportErrorCode: "",
       exportErrorMessage: "",
+    },
+  });
+  const [importState, setImportState] = useState({
+    isReading: false,
+    isImporting: false,
+    message: "",
+    payload: null,
+    debug: {
+      importMode: "未実行",
+      importCatsCount: 0,
+      importRecordsCount: 0,
+      importPublicCatsCount: 0,
+      importPublicFoodRecordsCount: 0,
+      importResult: "未実行",
+      importErrorCode: "",
+      importErrorMessage: "",
     },
   });
   const [isGoogleLoginInProgress, setIsGoogleLoginInProgress] = useState(false);
@@ -2129,6 +2213,98 @@ function CatHealthApp() {
     }
   };
 
+  const prepareImportJson = async (jsonText) => {
+    if (importState.isReading || importState.isImporting) return;
+    setImportState((prev) => ({ ...prev, isReading: true, message: "", payload: null }));
+    try {
+      const payload = validateImportPayload(JSON.parse(jsonText));
+      setImportState((prev) => ({
+        ...prev,
+        isReading: false,
+        payload,
+        message: "内容を確認して、取り込みを実行してください。",
+        debug: {
+          ...prev.debug,
+          importCatsCount: payload.cats.length,
+          importRecordsCount: payload.records.length,
+          importPublicCatsCount: payload.publicCats.length,
+          importPublicFoodRecordsCount: payload.publicFoodRecords.length,
+          importResult: "preview",
+          importErrorCode: "",
+          importErrorMessage: "",
+        },
+      }));
+    } catch (error) {
+      console.warn("[Import] JSON validation failed", error);
+      setImportState((prev) => ({
+        ...prev,
+        isReading: false,
+        payload: null,
+        message: IMPORT_ERROR_MESSAGE,
+        debug: { ...prev.debug, importResult: "error", importErrorCode: "import/invalid-json", importErrorMessage: error?.message || "invalid JSON" },
+      }));
+    }
+  };
+
+  const importData = async () => {
+    if (!importState.payload || importState.isImporting) return;
+    if (!window.confirm("このJSONのデータを現在のアカウントに取り込みます。よろしいですか？")) return;
+    const payload = importState.payload;
+    let importMode = "localOnly";
+    setImportState((prev) => ({ ...prev, isImporting: true, message: "" }));
+    try {
+      const authUser = firestoreGateway.auth?.currentUser || null;
+      const currentUser = authUser && !authUser.isAnonymous ? authUser : null;
+      if (currentUser) {
+        if (!firestoreGateway.db) throw { code: "import/firestore-unavailable", message: "Firestoreを利用できません" };
+        const ownerUid = String(currentUser.uid || "");
+        if (!ownerUid) throw { code: "import/missing-current-user-uid", message: "ログインユーザーを確認できません" };
+        importMode = "cloudAndLocal";
+        const pendingWrites = [];
+        for (const collectionName of IMPORT_COLLECTION_NAMES) {
+          for (const row of payload[collectionName]) {
+            const documentId = String(row.id || "");
+            if (!documentId || documentId.includes("/") || documentId.length > 1500) throw new Error(`import/invalid-document-id:${collectionName}`);
+            const ref = firestoreGateway.db.collection(collectionName).doc(documentId);
+            const existing = await ref.get();
+            if (existing.exists && String(existing.data()?.ownerUid || "") !== ownerUid) continue;
+            const { id: _ignoredId, ...exportedFields } = row;
+            pendingWrites.push({ ref, data: { ...exportedFields, ownerUid } });
+          }
+        }
+        for (let index = 0; index < pendingWrites.length; index += 400) {
+          const batch = firestoreGateway.db.batch();
+          pendingWrites.slice(index, index + 400).forEach(({ ref, data: importedData }) => batch.set(ref, importedData, { merge: true }));
+          await batch.commit();
+        }
+      }
+
+      restoreNyanNoteLocalStorage(payload.localStorageData);
+      const refreshed = loadInitialDataSafely().data;
+      setData(refreshed);
+      setSelectedCatId(refreshed.cats[0]?.id ?? null);
+      setPublicCatsReloadToken((prev) => prev + 1);
+      setImportState((prev) => ({
+        ...prev,
+        isImporting: false,
+        payload: null,
+        message: currentUser
+          ? "データをインポートしました"
+          : "データをインポートしました。未ログインのため、この端末内にのみ復元しました。クラウド保存するにはGoogleログインしてください。",
+        debug: { ...prev.debug, importMode, importResult: "success", importErrorCode: "", importErrorMessage: "" },
+      }));
+    } catch (error) {
+      const details = getFirebaseErrorDetails(error);
+      console.error("[Import] データの取り込みに失敗", details, error);
+      setImportState((prev) => ({
+        ...prev,
+        isImporting: false,
+        message: "データの取り込みに失敗しました。時間をおいて再度お試しください。",
+        debug: { ...prev.debug, importMode, importResult: "error", importErrorCode: details.code, importErrorMessage: details.message },
+      }));
+    }
+  };
+
   return (
     <div
       style={{
@@ -2370,6 +2546,9 @@ function CatHealthApp() {
             loginEmail={firestoreGateway.auth?.currentUser?.email || "未ログイン"}
             exportState={exportState}
             onExport={exportData}
+            importState={importState}
+            onReadImportJson={prepareImportJson}
+            onImport={importData}
           />
         )}
       </main>
@@ -3783,9 +3962,11 @@ function StatsBarCard({ title, rows, emptyText, note = "" }) {
 }
 
 
-function SupportView({ authUserInfo, loginEmail, exportState, onExport }) {
+function SupportView({ authUserInfo, loginEmail, exportState, onExport, importState, onReadImportJson, onImport }) {
   const contactEmail = "ymsh4649@gmail.com";
   const [copyMessage, setCopyMessage] = useState("");
+  const [importJsonText, setImportJsonText] = useState("");
+  const importFileRef = useRef(null);
 
   const copyExportJson = async () => {
     try {
@@ -3795,6 +3976,31 @@ function SupportView({ authUserInfo, loginEmail, exportState, onExport }) {
       setCopyMessage("下のJSONを選択してコピーしてください");
     }
   };
+  const readImportFile = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      let text;
+      if (typeof file.text === "function") {
+        text = await file.text();
+      } else {
+        text = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ""));
+          reader.onerror = () => reject(reader.error || new Error("file/read-failed"));
+          reader.readAsText(file);
+        });
+      }
+      await onReadImportJson(text);
+    } catch (error) {
+      console.warn("[Import] File read failed", error);
+      await onReadImportJson("");
+    }
+  };
+  const formattedExportedAt = importState.payload
+    ? new Intl.DateTimeFormat("ja-JP", { dateStyle: "medium", timeStyle: "short" }).format(new Date(importState.payload.exportedAt))
+    : "";
   return (
     <div style={{ display: "grid", gap: 12 }}>
       <div style={cardStyle}>
@@ -3835,6 +4041,62 @@ function SupportView({ authUserInfo, loginEmail, exportState, onExport }) {
         {AUTH_DEBUG_ENABLED ? (
           <div style={{ fontSize: 11, color: palette.inkSoft, display: "grid", gap: 3, marginTop: 12 }}>
             {Object.entries(exportState.debug).map(([key, value]) => <div key={key}><strong>{key}:</strong> {String(value)}</div>)}
+          </div>
+        ) : null}
+      </div>
+
+      <div style={cardStyle}>
+        <Label>データのインポート</Label>
+        <div style={{ fontSize: 12, color: palette.inkSoft, lineHeight: 1.7, margin: "8px 0 10px" }}>
+          にゃん・ノートから書き出したJSONを、既存データを消さずに追加・復元します。
+        </div>
+        <input ref={importFileRef} type="file" accept="application/json,.json" onChange={readImportFile} style={{ display: "none" }} />
+        <button
+          type="button"
+          onClick={() => importFileRef.current?.click()}
+          disabled={importState.isReading || importState.isImporting}
+          style={{ ...exportButtonStyle, opacity: importState.isReading || importState.isImporting ? 0.6 : 1 }}
+        >
+          {importState.isReading ? "読み込み中..." : "JSONファイルを読み込む"}
+        </button>
+        <details style={{ marginTop: 12 }}>
+          <summary style={{ cursor: "pointer", fontSize: 12, color: palette.accent, fontWeight: 700 }}>ファイルを選べない場合はJSONテキストを貼り付ける</summary>
+          <textarea
+            value={importJsonText}
+            onChange={(event) => setImportJsonText(event.target.value)}
+            disabled={importState.isReading || importState.isImporting}
+            aria-label="インポートJSONテキスト"
+            placeholder="JSONテキストを貼り付けてください"
+            style={{ ...inputStyle, minHeight: 140, marginTop: 8, fontSize: 11 }}
+          />
+          <button
+            type="button"
+            onClick={() => onReadImportJson(importJsonText)}
+            disabled={!importJsonText.trim() || importState.isReading || importState.isImporting}
+            style={{ ...exportSecondaryButtonStyle, marginTop: 8, opacity: !importJsonText.trim() || importState.isReading || importState.isImporting ? 0.6 : 1 }}
+          >
+            {importState.isReading ? "読み込み中..." : "貼り付けたJSONを読み込む"}
+          </button>
+        </details>
+        {importState.message ? <div role="status" style={{ fontSize: 13, color: palette.ink, marginTop: 10, lineHeight: 1.7 }}>{importState.message}</div> : null}
+        {importState.payload ? (
+          <div style={{ marginTop: 12, padding: 12, border: `1px solid ${palette.line}`, borderRadius: 10, background: "#FFF8EF" }}>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>インポート内容のプレビュー</div>
+            <div style={{ display: "grid", gap: 4, fontSize: 12 }}>
+              <div>猫プロフィール件数：{importState.payload.cats.length}件</div>
+              <div>記録件数：{importState.payload.records.length}件</div>
+              <div>公開プロフィール件数：{importState.payload.publicCats.length}件</div>
+              <div>公開記録件数：{importState.payload.publicFoodRecords.length}件</div>
+              <div>エクスポート日時：{formattedExportedAt}</div>
+            </div>
+            <button type="button" onClick={onImport} disabled={importState.isImporting} style={{ ...exportButtonStyle, marginTop: 12, opacity: importState.isImporting ? 0.6 : 1 }}>
+              {importState.isImporting ? "取り込み中..." : "このデータを取り込む"}
+            </button>
+          </div>
+        ) : null}
+        {AUTH_DEBUG_ENABLED ? (
+          <div style={{ fontSize: 11, color: palette.inkSoft, display: "grid", gap: 3, marginTop: 12 }}>
+            {Object.entries(importState.debug).map(([key, value]) => <div key={key}><strong>{key}:</strong> {String(value)}</div>)}
           </div>
         ) : null}
       </div>
