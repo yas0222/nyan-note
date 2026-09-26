@@ -930,7 +930,7 @@ function loadInitialDataSafely() {
 function CatHealthApp() {
   const [localOwnerUid] = useState(() => getOrCreateAnonymousOwnerId());
   const [authOwnerUid, setAuthOwnerUid] = useState("");
-  const [authUserInfo, setAuthUserInfo] = useState({ status: "未認証", isGoogleLinked: false, userLabel: "" });
+  const [authUserInfo, setAuthUserInfo] = useState({ status: "未認証", isGoogleLinked: false, email: "", uid: "", providerIds: [] });
   const [authBootstrapCompleted, setAuthBootstrapCompleted] = useState(false);
   const [firestoreGateway] = useState(() => createFirestoreGateway());
   const [firebaseStatus, setFirebaseStatus] = useState(
@@ -1317,7 +1317,13 @@ function CatHealthApp() {
       const signedInUser = result?.user || firestoreGateway.auth.currentUser;
       const signedInProviderIds = Array.isArray(signedInUser?.providerData) ? signedInUser.providerData.map((p) => p?.providerId).filter(Boolean) : [];
       const isGoogleLinked = signedInProviderIds.includes("google.com");
-      setAuthUserInfo({ status: isGoogleLinked ? "Googleログイン済み" : "匿名ログイン中", isGoogleLinked, userLabel: signedInUser?.displayName || signedInUser?.email || "" });
+      setAuthUserInfo({
+        status: isGoogleLinked ? "Googleログイン済み" : "匿名ログイン中",
+        isGoogleLinked,
+        email: signedInUser?.email || "",
+        uid: signedInUser?.uid || "",
+        providerIds: signedInProviderIds,
+      });
       setFirebaseDebug((prev) => ({ ...prev, authStatus: isGoogleLinked ? "Googleログイン済み" : "匿名ログイン中", lastAuthAction: authAction, lastAuthResult: "success", lastAuthErrorCode: "", lastAuthErrorMessage: "", popupFlowStep: `${authAction}:success` }));
       setMessage(isGoogleLinked ? "Googleログインが完了しました。" : "Googleログイン後の状態確認が必要です。再度お試しください。");
     } catch (e) {
@@ -1891,7 +1897,7 @@ function CatHealthApp() {
   useEffect(() => {
     const initAuth = async () => {
       if (!firestoreGateway.enabled || !firestoreGateway.auth) {
-        setAuthUserInfo({ status: "未認証", isGoogleLinked: false, userLabel: "" });
+        setAuthUserInfo({ status: "未認証", isGoogleLinked: false, email: "", uid: "", providerIds: [] });
         setAuthBootstrapCompleted(true);
         return;
       }
@@ -1908,7 +1914,7 @@ function CatHealthApp() {
                 const result = await firestoreGateway.auth.signInAnonymously();
                 const anonUid = result?.user?.uid || "";
                 setAuthOwnerUid(anonUid);
-                setAuthUserInfo({ status: "匿名ログイン中", isGoogleLinked: false, userLabel: "" });
+                setAuthUserInfo({ status: "匿名ログイン中", isGoogleLinked: false, email: "", uid: anonUid, providerIds: [] });
                 setFirebaseDebug((prev) => ({ ...prev, authStatus: "匿名ログイン中", lastAuthResult: "success", lastAuthErrorCode: "", lastAuthErrorMessage: "" }));
                 setAuthBootstrapCompleted(true);
                 resolve();
@@ -1916,12 +1922,13 @@ function CatHealthApp() {
               }
               const providerIds = Array.isArray(user.providerData) ? user.providerData.map((p) => p?.providerId).filter(Boolean) : [];
               const isGoogleLinked = providerIds.includes("google.com");
-              const userLabel = user.displayName || user.email || "";
               setAuthOwnerUid(user.uid || "");
               setAuthUserInfo({
                 status: isGoogleLinked ? "Googleログイン済み" : "匿名ログイン中",
                 isGoogleLinked,
-                userLabel,
+                email: user.email || "",
+                uid: user.uid || "",
+                providerIds,
               });
               setFirebaseDebug((prev) => ({ ...prev, authStatus: isGoogleLinked ? "Googleログイン済み" : "匿名ログイン中", lastAuthResult: "restored", lastAuthErrorCode: "", lastAuthErrorMessage: "" }));
               setAuthBootstrapCompleted(true);
@@ -2757,7 +2764,6 @@ function CatHealthApp() {
         {tab === "support" && (
           <SupportView
             authUserInfo={authUserInfo}
-            loginEmail={firestoreGateway.auth?.currentUser?.email || "未ログイン"}
             exportState={exportState}
             onExport={exportData}
             importState={importState}
@@ -3194,7 +3200,6 @@ function HomeView({
       <div style={{ ...cardStyle, padding: "14px 14px 16px" }}>
         <div style={{ fontSize: 11, color: palette.inkSoft, letterSpacing: "0.05em", marginBottom: 6 }}>ログイン情報</div>
         <div style={{ fontSize: 13, color: palette.ink }}>{authUserInfo.status}</div>
-        {AUTH_DEBUG_ENABLED && authUserInfo.userLabel ? <div style={{ marginTop: 4, fontSize: 11, color: palette.inkSoft }}>debug: {authUserInfo.userLabel}</div> : null}
         <div style={{ marginTop: 10 }}>
           <MiniButton onClick={onGoogleLogin} disabled={isGoogleLoginInProgress}>
             {isGoogleLoginInProgress ? "Googleログイン処理中..." : "Googleでログイン"}
@@ -4176,7 +4181,7 @@ function StatsBarCard({ title, rows, emptyText, note = "" }) {
 }
 
 
-function SupportView({ authUserInfo, loginEmail, exportState, onExport, importState, onReadImportJson, onImport }) {
+function SupportView({ authUserInfo, exportState, onExport, importState, onReadImportJson, onImport }) {
   const contactEmail = "ymsh4649@gmail.com";
   const [copyMessage, setCopyMessage] = useState("");
   const [importJsonText, setImportJsonText] = useState("");
@@ -4226,7 +4231,16 @@ function SupportView({ authUserInfo, loginEmail, exportState, onExport, importSt
           <div><strong>アプリ名：</strong>にゃん・ノート</div>
           <div><strong>バージョン：</strong>{APP_VERSION}</div>
           <div><strong>ログイン状態：</strong>{authUserInfo?.status || "未ログイン"}</div>
-          {AUTH_DEBUG_ENABLED ? <div><strong>ログイン中メール（debug）：</strong>{loginEmail}</div> : null}
+          <div>
+            <strong>ログイン中のアカウント：</strong>
+            {authUserInfo?.isGoogleLinked ? (authUserInfo.email || "メールアドレスを取得できません") : "未ログイン"}
+          </div>
+          {AUTH_DEBUG_ENABLED && authUserInfo?.isGoogleLinked ? (
+            <div style={{ display: "grid", gap: 3, paddingLeft: 12 }}>
+              <div><strong>UID：</strong>{authUserInfo.uid || "取得できません"}</div>
+              <div><strong>providerIds：</strong>{authUserInfo.providerIds?.length ? authUserInfo.providerIds.join(", ") : "取得できません"}</div>
+            </div>
+          ) : null}
           {AUTH_DEBUG_ENABLED ? <div><strong>appVersion（debug）：</strong>{APP_VERSION}</div> : null}
           {AUTH_DEBUG_ENABLED ? <div><strong>serviceWorkerVersion（debug）：</strong>{SERVICE_WORKER_VERSION}</div> : null}
           {AUTH_DEBUG_ENABLED ? <div><strong>cacheName（debug）：</strong>{SERVICE_WORKER_CACHE_NAME}</div> : null}
