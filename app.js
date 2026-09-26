@@ -22,6 +22,7 @@ const STORAGE_KEY = "nyan-note-prototype-v1";
 const ANONYMOUS_OWNER_ID_KEY = "nyan-note-anonymous-owner-id-v1";
 const PRIVACY_ACCEPTED_KEY = "nyan-note-privacy-accepted-v1";
 const EXPORT_LOCAL_STORAGE_KEYS = [STORAGE_KEY, ANONYMOUS_OWNER_ID_KEY, PRIVACY_ACCEPTED_KEY];
+const SELECTED_CAT_STORAGE_KEYS = ["selectedCatId", "currentCatId", "nyan-note-selected-cat-id"];
 const IMPORT_COLLECTION_NAMES = ["cats", "records", "publicCats", "publicFoodRecords"];
 const IMPORT_ERROR_MESSAGE = "読み込めないファイルです。にゃん・ノートのエクスポートJSONを選択してください。";
 const SHOW_DEV_MENU_IN_PUBLIC = false;
@@ -156,6 +157,76 @@ function restoreNyanNoteLocalStorage(localStorageData) {
       if (!safeLocalStorageSet(key, merged)) throw new Error("import/local-storage-write-failed");
     } else if (safeLocalStorageGet(key) === null && !safeLocalStorageSet(key, importedValue)) {
       throw new Error("import/local-storage-write-failed");
+    }
+  }
+}
+
+function cloudCollectionsToLocalData(collections, baseData) {
+  const catsById = new Map((Array.isArray(baseData?.cats) ? baseData.cats : []).map((cat) => [String(cat.id), cat]));
+  const cloudCatIdToLocalId = new Map();
+
+  for (const row of collections.cats || []) {
+    const localId = String(row.sourceCatId || row.localId || row.id);
+    if (!localId) continue;
+    cloudCatIdToLocalId.set(String(row.id), localId);
+    cloudCatIdToLocalId.set(String(row.cloudId || ""), localId);
+    cloudCatIdToLocalId.set(String(row.sourceCatId || ""), localId);
+    const previous = catsById.get(localId) || {};
+    catsById.set(localId, {
+      ...previous,
+      ...row,
+      id: previous.id ?? localId,
+      localId,
+      cloudId: String(row.id),
+      gender: row.gender ?? row.sex ?? previous.gender ?? "不明",
+      photo: row.photo || previous.photo || "🐱",
+    });
+  }
+
+  const logsByCat = Object.fromEntries(
+    Object.entries(baseData?.logsByCat || {}).map(([catId, rows]) => [catId, Array.isArray(rows) ? [...rows] : []]),
+  );
+  for (const row of collections.records || []) {
+    const rawCatId = String(row.catId || row.sourceCatId || "");
+    const catId = cloudCatIdToLocalId.get(rawCatId) || rawCatId;
+    if (!catId || !catsById.has(catId)) continue;
+    const record = {
+      ...row,
+      id: row.localId ?? row.id,
+      date: row.date || row.recordDate,
+      foodTotal: Number(row.foodTotal ?? row.foodAmount ?? row.foodGram ?? 0),
+      kibblePct: Number(row.kibblePct ?? row.dryRatio ?? 0),
+      wetPct: Number(row.wetPct ?? row.wetRatio ?? 0),
+      waterTotal: Number(row.waterTotal ?? row.waterMl ?? 0),
+      snack: row.snack ?? row.treatLevel ?? "なし",
+      poop: Number(row.poop ?? row.poopCount ?? 0),
+      pee: Number(row.pee ?? row.peeCount ?? 0),
+      isPrivate: row.isPrivate ?? row.visibility === "private",
+    };
+    const rows = logsByCat[catId] || [];
+    const matchIndex = rows.findIndex((item) => String(item.id) === String(record.id) || (record.date && item.date === record.date));
+    if (matchIndex >= 0) rows[matchIndex] = { ...rows[matchIndex], ...record };
+    else rows.push(record);
+    logsByCat[catId] = rows.sort((a, b) => String(b.date || "").localeCompare(String(a.date || "")));
+  }
+
+  const cats = normalizeCats(Array.from(catsById.values()));
+  const numericCatIds = cats.map((cat) => Number(cat.id)).filter(Number.isFinite);
+  const numericLogIds = Object.values(logsByCat).flat().map((row) => Number(row.id)).filter(Number.isFinite);
+  return {
+    cats,
+    logsByCat: normalizeLogsByCat(logsByCat),
+    nextIds: {
+      cat: Math.max(Number(baseData?.nextIds?.cat) || 100, ...numericCatIds, 100),
+      log: Math.max(Number(baseData?.nextIds?.log) || 500, ...numericLogIds, 500),
+    },
+  };
+}
+
+function persistSelectedCatId(catId) {
+  for (const key of SELECTED_CAT_STORAGE_KEYS) {
+    if (!safeLocalStorageSet(key, catId === null || catId === undefined ? "" : String(catId))) {
+      throw new Error("import/selected-cat-storage-write-failed");
     }
   }
 }
@@ -1023,7 +1094,10 @@ function CatHealthApp() {
   const [data, setData] = useState(initialLoadRef.current.data);
   const [allowAutoSave] = useState(initialLoadRef.current.allowAutoSave);
 
-  const [selectedCatId, setSelectedCatId] = useState(() => data.cats[0]?.id ?? null);
+  const [selectedCatId, setSelectedCatId] = useState(() => {
+    const storedId = SELECTED_CAT_STORAGE_KEYS.map(safeLocalStorageGet).find((value) => value);
+    return data.cats.find((cat) => String(cat.id) === String(storedId))?.id ?? data.cats[0]?.id ?? null;
+  });
   const [message, setMessage] = useState("");
   const [exportState, setExportState] = useState({
     isExporting: false,
@@ -1048,10 +1122,18 @@ function CatHealthApp() {
     payload: null,
     debug: {
       importMode: "未実行",
-      importCatsCount: 0,
-      importRecordsCount: 0,
-      importPublicCatsCount: 0,
-      importPublicFoodRecordsCount: 0,
+      importParsedCatsCount: 0,
+      importParsedRecordsCount: 0,
+      importWrittenCatsCount: 0,
+      importWrittenRecordsCount: 0,
+      importWrittenPublicCatsCount: 0,
+      importWrittenPublicFoodRecordsCount: 0,
+      importReloadTriggered: false,
+      importRefetchTriggered: false,
+      importRefetchedCatsCount: 0,
+      importRefetchedRecordsCount: 0,
+      importSelectedCatIdBefore: "",
+      importSelectedCatIdAfter: "",
       importResult: "未実行",
       importErrorCode: "",
       importErrorMessage: "",
@@ -1878,6 +1960,10 @@ function CatHealthApp() {
     }
   }, [safeCats, selectedCatId]);
 
+  useEffect(() => {
+    for (const key of SELECTED_CAT_STORAGE_KEYS) safeLocalStorageSet(key, selectedCatId === null ? "" : String(selectedCatId));
+  }, [selectedCatId]);
+
   const selectedCat = safeCats.find((c) => c.id === selectedCatId) || null;
 
   const todayLogByCat = useMemo(() => {
@@ -2133,7 +2219,7 @@ function CatHealthApp() {
           Object.keys(collections).map(async (collectionName) => {
             const snapshot = await firestoreGateway.db.collection(collectionName).where("ownerUid", "==", ownerUid).get();
             collections[collectionName] = snapshot.docs
-              .map((doc) => ({ id: doc.id, ...doc.data() }))
+              .map((doc) => ({ ...doc.data(), id: doc.id }))
               .filter((item) => item.ownerUid === ownerUid);
           }),
         );
@@ -2225,10 +2311,8 @@ function CatHealthApp() {
         message: "内容を確認して、取り込みを実行してください。",
         debug: {
           ...prev.debug,
-          importCatsCount: payload.cats.length,
-          importRecordsCount: payload.records.length,
-          importPublicCatsCount: payload.publicCats.length,
-          importPublicFoodRecordsCount: payload.publicFoodRecords.length,
+          importParsedCatsCount: payload.cats.length,
+          importParsedRecordsCount: payload.records.length,
           importResult: "preview",
           importErrorCode: "",
           importErrorMessage: "",
@@ -2250,48 +2334,162 @@ function CatHealthApp() {
     if (!importState.payload || importState.isImporting) return;
     if (!window.confirm("このJSONのデータを現在のアカウントに取り込みます。よろしいですか？")) return;
     const payload = importState.payload;
+    const selectedBefore = selectedCatId;
     let importMode = "localOnly";
+    const writtenCounts = { cats: 0, records: 0, publicCats: 0, publicFoodRecords: 0 };
+    let refetchTriggered = false;
+    let refetched = { cats: [], records: [], publicCats: [], publicFoodRecords: [] };
     setImportState((prev) => ({ ...prev, isImporting: true, message: "" }));
     try {
       const authUser = firestoreGateway.auth?.currentUser || null;
       const currentUser = authUser && !authUser.isAnonymous ? authUser : null;
+      let importedForLocal = Object.fromEntries(IMPORT_COLLECTION_NAMES.map((name) => [name, payload[name]]));
+
       if (currentUser) {
         if (!firestoreGateway.db) throw { code: "import/firestore-unavailable", message: "Firestoreを利用できません" };
         const ownerUid = String(currentUser.uid || "");
         if (!ownerUid) throw { code: "import/missing-current-user-uid", message: "ログインユーザーを確認できません" };
+        await currentUser.getIdToken(true);
         importMode = "cloudAndLocal";
+
+        const catIds = new Map();
+        const publicIds = new Map();
         const pendingWrites = [];
+        const reserveDocument = async (collectionName, requestedId) => {
+          const collection = firestoreGateway.db.collection(collectionName);
+          const requestedRef = collection.doc(String(requestedId));
+          const existing = await requestedRef.get();
+          return existing.exists && String(existing.data()?.ownerUid || "") !== ownerUid ? collection.doc() : requestedRef;
+        };
+
+        // Decide cat IDs first so every dependent record can be rewritten consistently.
+        for (const row of payload.cats) {
+          const ref = await reserveDocument("cats", row.id);
+          const localId = String(row.sourceCatId || row.localId || row.id);
+          for (const value of [row.id, row.cloudId, row.sourceCatId, row.localId]) {
+            if (value !== undefined && value !== null && String(value)) catIds.set(String(value), { cloudId: ref.id, localId });
+          }
+          const { id: _id, ...fields } = row;
+          pendingWrites.push({
+            collectionName: "cats",
+            ref,
+            data: { ...fields, ownerUid, sourceCatId: localId, localId, cloudId: ref.id },
+          });
+        }
+        for (const row of payload.publicCats) {
+          const ref = await reserveDocument("publicCats", row.id);
+          const oldPublicId = String(row.publicId || row.id);
+          publicIds.set(oldPublicId, ref.id);
+          const linked = catIds.get(String(row.cloudId || row.sourceCatId || row.catId || ""));
+          const { id: _id, ...fields } = row;
+          pendingWrites.push({
+            collectionName: "publicCats",
+            ref,
+            data: {
+              ...fields,
+              ownerUid,
+              publicId: ref.id,
+              sourceCatId: linked?.localId || String(row.sourceCatId || row.catId || ""),
+              ...(linked ? { cloudId: linked.cloudId } : {}),
+            },
+          });
+        }
+        for (const row of payload.records) {
+          const ref = await reserveDocument("records", row.id);
+          const linked = catIds.get(String(row.catId || row.cloudId || row.sourceCatId || ""));
+          const { id: _id, ...fields } = row;
+          pendingWrites.push({
+            collectionName: "records",
+            ref,
+            data: {
+              ...fields,
+              ownerUid,
+              catId: linked?.localId || String(row.catId || row.sourceCatId || ""),
+              sourceCatId: linked?.localId || String(row.sourceCatId || row.catId || ""),
+              cloudId: linked?.cloudId || String(row.cloudId || ""),
+              localId: String(row.localId || row.id),
+            },
+          });
+        }
+        for (const row of payload.publicFoodRecords) {
+          const ref = await reserveDocument("publicFoodRecords", row.id);
+          const linked = catIds.get(String(row.cloudId || row.catId || row.sourceCatId || ""));
+          const mappedPublicId = publicIds.get(String(row.publicId || "")) || String(row.publicId || "");
+          const { id: _id, ...fields } = row;
+          pendingWrites.push({
+            collectionName: "publicFoodRecords",
+            ref,
+            data: {
+              ...fields,
+              ownerUid,
+              publicFoodRecordId: ref.id,
+              publicId: mappedPublicId,
+              cloudId: linked?.cloudId || String(row.cloudId || ""),
+              sourceCatId: linked?.localId || String(row.sourceCatId || row.catId || ""),
+              catId: linked?.localId || String(row.catId || row.sourceCatId || ""),
+            },
+          });
+        }
+
+        for (let index = 0; index < pendingWrites.length; index += 400) {
+          const chunk = pendingWrites.slice(index, index + 400);
+          const batch = firestoreGateway.db.batch();
+          chunk.forEach(({ ref, data: importedData }) => batch.set(ref, importedData, { merge: true }));
+          await batch.commit();
+          chunk.forEach(({ collectionName }) => { writtenCounts[collectionName] += 1; });
+        }
+
+        refetchTriggered = true;
+        await Promise.all(IMPORT_COLLECTION_NAMES.map(async (collectionName) => {
+          const snapshot = await firestoreGateway.db.collection(collectionName).where("ownerUid", "==", ownerUid).get();
+          refetched[collectionName] = snapshot.docs.map((doc) => ({ ...doc.data(), id: doc.id }));
+        }));
+        // A successful commit is not enough: every attempted document must be observable as this user.
         for (const collectionName of IMPORT_COLLECTION_NAMES) {
-          for (const row of payload[collectionName]) {
-            const documentId = String(row.id || "");
-            if (!documentId || documentId.includes("/") || documentId.length > 1500) throw new Error(`import/invalid-document-id:${collectionName}`);
-            const ref = firestoreGateway.db.collection(collectionName).doc(documentId);
-            const existing = await ref.get();
-            if (existing.exists && String(existing.data()?.ownerUid || "") !== ownerUid) continue;
-            const { id: _ignoredId, ...exportedFields } = row;
-            pendingWrites.push({ ref, data: { ...exportedFields, ownerUid } });
+          const expectedIds = new Set(pendingWrites.filter((write) => write.collectionName === collectionName).map((write) => write.ref.id));
+          const observedIds = new Set(refetched[collectionName].filter((row) => row.ownerUid === ownerUid).map((row) => row.id));
+          if ([...expectedIds].some((id) => !observedIds.has(id))) {
+            throw { code: "import/refetch-incomplete", message: `${collectionName} の保存結果を再取得できませんでした` };
           }
         }
-        for (let index = 0; index < pendingWrites.length; index += 400) {
-          const batch = firestoreGateway.db.batch();
-          pendingWrites.slice(index, index + 400).forEach(({ ref, data: importedData }) => batch.set(ref, importedData, { merge: true }));
-          await batch.commit();
-        }
+        importedForLocal = refetched;
       }
 
       restoreNyanNoteLocalStorage(payload.localStorageData);
-      const refreshed = loadInitialDataSafely().data;
+      const localAfterRestore = loadInitialDataSafely().data;
+      const refreshed = cloudCollectionsToLocalData(importedForLocal, localAfterRestore);
+      const selectedAfter = refreshed.cats.some((cat) => String(cat.id) === String(selectedBefore))
+        ? refreshed.cats.find((cat) => String(cat.id) === String(selectedBefore)).id
+        : refreshed.cats[0]?.id ?? null;
+      if (!safeLocalStorageSet(STORAGE_KEY, JSON.stringify(refreshed))) throw new Error("import/local-storage-write-failed");
+      persistSelectedCatId(selectedAfter);
       setData(refreshed);
-      setSelectedCatId(refreshed.cats[0]?.id ?? null);
+      setSelectedCatId(selectedAfter);
       setPublicCatsReloadToken((prev) => prev + 1);
       setImportState((prev) => ({
         ...prev,
         isImporting: false,
         payload: null,
         message: currentUser
-          ? "データをインポートしました"
+          ? "データを保存し、再取得してインポートしました"
           : "データをインポートしました。未ログインのため、この端末内にのみ復元しました。クラウド保存するにはGoogleログインしてください。",
-        debug: { ...prev.debug, importMode, importResult: "success", importErrorCode: "", importErrorMessage: "" },
+        debug: {
+          ...prev.debug,
+          importMode,
+          importWrittenCatsCount: writtenCounts.cats,
+          importWrittenRecordsCount: writtenCounts.records,
+          importWrittenPublicCatsCount: writtenCounts.publicCats,
+          importWrittenPublicFoodRecordsCount: writtenCounts.publicFoodRecords,
+          importReloadTriggered: false,
+          importRefetchTriggered: refetchTriggered,
+          importRefetchedCatsCount: refetched.cats.length,
+          importRefetchedRecordsCount: refetched.records.length,
+          importSelectedCatIdBefore: selectedBefore ?? "",
+          importSelectedCatIdAfter: selectedAfter ?? "",
+          importResult: "success",
+          importErrorCode: "",
+          importErrorMessage: "",
+        },
       }));
     } catch (error) {
       const details = getFirebaseErrorDetails(error);
@@ -2299,8 +2497,24 @@ function CatHealthApp() {
       setImportState((prev) => ({
         ...prev,
         isImporting: false,
-        message: "データの取り込みに失敗しました。時間をおいて再度お試しください。",
-        debug: { ...prev.debug, importMode, importResult: "error", importErrorCode: details.code, importErrorMessage: details.message },
+        message: "データの取り込みに失敗しました。成功を確認できなかったため、時間をおいて再度お試しください。",
+        debug: {
+          ...prev.debug,
+          importMode,
+          importWrittenCatsCount: writtenCounts.cats,
+          importWrittenRecordsCount: writtenCounts.records,
+          importWrittenPublicCatsCount: writtenCounts.publicCats,
+          importWrittenPublicFoodRecordsCount: writtenCounts.publicFoodRecords,
+          importReloadTriggered: false,
+          importRefetchTriggered: refetchTriggered,
+          importRefetchedCatsCount: refetched.cats.length,
+          importRefetchedRecordsCount: refetched.records.length,
+          importSelectedCatIdBefore: selectedBefore ?? "",
+          importSelectedCatIdAfter: selectedBefore ?? "",
+          importResult: "error",
+          importErrorCode: details.code,
+          importErrorMessage: details.message,
+        },
       }));
     }
   };
